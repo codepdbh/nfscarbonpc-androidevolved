@@ -1,0 +1,29 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Need for Speed: Carbon",
+  "system": "PC (Windows)",
+  "type": "recomp",
+  "project": "NFS Carbon PC Android Evolved",
+  "status": "in-progress",
+  "targets": [
+    "Android"
+  ],
+  "approach": "Static x86-to-C recompilation with pcrecomp and an Android Win32/Direct3D 9 compatibility runtime.",
+  "maintainers": [
+    {
+      "name": "codepdbh",
+      "link": "https://github.com/codepdbh"
+    }
+  ],
+  "notes": "Early development of the PC edition port. Translation and runtime bring-up are in progress; gameplay is not yet validated. Separate from the Xbox 360 Carbon port.",
+  "toolchain": "Pcrecomp",
+  "links": [
+    {
+      "label": "Upstream project",
+      "url": "https://github.com/sp00nznet/pcrecomp"
+    }
+  ],
+  "original": {
+    "revision": "1.4"
+  }
+}
