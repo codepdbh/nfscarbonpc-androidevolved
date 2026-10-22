@@ -166,7 +166,7 @@ def read_va_list(path):
     return out
 
 
-def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", extra_exclude=None):
+def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", extra_exclude=None, patch_sites=None):
     import pefile
     from mw_lifter import Lifter
     info = analyze_pe(exe)
@@ -193,8 +193,12 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", extra_
     hooks = read_va_list(os.path.join(cfg, "hooks.txt"))
     md = Cs(CS_ARCH_X86, CS_MODE_32)
     md.detail = True
+    # --patch-sites FILE: code addresses whose trailing imm32/disp32 a plugin
+    # rewrites at run time (NFSCO's WidescreenFix stores the display's aspect
+    # there): those operands are read from memory instead of baked in.
+    sites = set(int(v) for v in json.load(open(patch_sites))) if patch_sites else set()
     lifter = Lifter(iat_map=iat, func_names={}, lifted=lifted, precise_carry=True,
-                    hook_sites=set(hooks))
+                    hook_sites=set(hooks), patch_sites=sites)
     os.makedirs(outdir, exist_ok=True)
     for fn in os.listdir(outdir):
         if fn.startswith(prefix + "recomp_") and fn.endswith((".c", ".h")):
@@ -300,6 +304,7 @@ if __name__ == "__main__":
         names = a[a.index("--names") + 1] if "--names" in a else None
         prefix = a[a.index("--prefix") + 1] if "--prefix" in a else ""
         extra = a[a.index("--exclude") + 1] if "--exclude" in a else None
-        cmd_lift(a[1], a[2], a[3], split, names, prefix, extra)
+        sites = a[a.index("--patch-sites") + 1] if "--patch-sites" in a else None
+        cmd_lift(a[1], a[2], a[3], split, names, prefix, extra, sites)
     else:
         sys.exit(__doc__)

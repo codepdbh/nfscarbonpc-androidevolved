@@ -62,7 +62,7 @@ void createFile(){
     bool existed=std::filesystem::exists(path);
     int descriptor=disposition==3&&!(access&0x40000000u)&&discCheckSwitch(path) ? ::open("/dev/null",O_RDONLY|O_CLOEXEC) : ::open(path.c_str(),options|O_CLOEXEC,0600);
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Guest file %s access=%x disposition=%u",path.filename().string().c_str(),access,disposition);
-    if(descriptor<0){lastError=fileError();ret(UINT32_MAX,7);return;}uint32_t handle=nextFileHandle++;fileHandles.emplace(handle,descriptor);lastError=(disposition==2||disposition==4)&&existed?183:0;ret(handle,7);
+    if(descriptor<0){lastError=fileError();NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","Guest file open failed: %s, error=%u",path.string().c_str(),lastError);ret(UINT32_MAX,7);return;}uint32_t handle=nextFileHandle++;fileHandles.emplace(handle,descriptor);lastError=(disposition==2||disposition==4)&&existed?183:0;ret(handle,7);
 }
 void readFile(){
     auto file=fileHandles.find(arg(0));if(file==fileHandles.end()){lastError=6;ret(0,5);return;}if(arg(4))throw GuestStop("Overlapped ReadFile pending");

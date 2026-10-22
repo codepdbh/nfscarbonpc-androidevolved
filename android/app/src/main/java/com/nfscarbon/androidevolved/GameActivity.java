@@ -145,6 +145,7 @@ public final class GameActivity extends NativeActivity {
     private static native void nativePointer(float x, float y, int phase);
     private static native void nativeLanguage(String language);
     private static native void nativeResolution(int width, int height);
+    private static native void nativeGraphicsQuality(int level);
     private static native void nativeFrameLimit(int framesPerSecond);
     private static native void nativeWidescreen(boolean enabled);
     private static native void nativeOnlineServer(String host);
@@ -167,6 +168,48 @@ public final class GameActivity extends NativeActivity {
     }
     private String tr(String spanish,Object... args) {return Lang.t(this,spanish,args);}
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    // NFSCO (nfsco.club) reads chat and commands in its own window: T opens it,
+    // the text arrives as typed characters, Enter sends it.
+    private void sendNfscoLine(String line) {
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        setTouchKey(0x14, true);
+        handler.postDelayed(() -> setTouchKey(0x14, false), 60);
+        handler.postDelayed(() -> nativeTypeText(line, false), 250);
+        handler.postDelayed(() -> setTouchKey(0x1c, true), 450);
+        handler.postDelayed(() -> setTouchKey(0x1c, false), 520);
+    }
+    private void askNfsco(String title, String hint, java.util.function.Function<String, String> command) {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);input.setHint(hint);
+        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)});
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        LinearLayout form = new LinearLayout(this);form.setPadding(dp(20), 0, dp(20), 0);form.addView(input,
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(title).setView(form)
+                .setNegativeButton(tr("Cancelar"), null).setPositiveButton(tr("Enviar"), null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
+            String value = input.getText().toString().trim();
+            if (value.isEmpty() || !value.matches("[ -~]{1,60}")) {input.setError(tr("Solo letras sin tildes, números y signos básicos"));return;}
+            sendNfscoLine(command.apply(value));dialog.dismiss();
+        }));
+        dialog.show();input.requestFocus();
+        dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+    }
+    private void showNfscoCommands() {
+        String[] items = {tr("Chat o comando…"), tr("Ver jugadores conectados"), tr("Buscar carrera…"),
+                tr("Crear carrera (ID)…"), tr("Unirse a carrera (ID)…"), tr("Iniciar mi carrera"), tr("Salir de la carrera")};
+        new AlertDialog.Builder(this).setTitle(tr("NFSCO online (nfsco.club)")).setItems(items, (dialog, which) -> {
+            switch (which) {
+                case 0: askNfsco(items[0], tr("Mensaje o /comando"), value -> value); break;
+                case 1: sendNfscoLine("/clients"); break;
+                case 2: askNfsco(items[2], tr("Nombre o ID de la carrera"), value -> "/search " + value); break;
+                case 3: askNfsco(items[3], "ID", value -> "/race " + value); break;
+                case 4: askNfsco(items[4], "ID", value -> "/join " + value); break;
+                case 5: sendNfscoLine("/start"); break;
+                default: sendNfscoLine("/leave"); break;
+            }
+        }).setNegativeButton(tr("Cerrar"), null).show();
+    }
     private void showTextInput() {
         EditText name = new EditText(this);
         name.setSingleLine(true);
@@ -230,6 +273,7 @@ public final class GameActivity extends NativeActivity {
         int[] size = GameOptions.renderSize(this, Math.max(metrics.widthPixels, metrics.heightPixels),
                 Math.min(metrics.widthPixels, metrics.heightPixels));
         nativeResolution(launch.getIntExtra("renderWidth", size[0]), launch.getIntExtra("renderHeight", size[1]));
+        nativeGraphicsQuality(launch.getIntExtra("graphicsQuality", Integer.parseInt(GameOptions.get(this, GameOptions.QUALITY))));
         String language = launch.getStringExtra("language");
         nativeLanguage(language != null ? language : GameOptions.language(this));
         nativeFrameLimit(launch.getIntExtra("frameCap", Integer.parseInt(GameOptions.get(this, GameOptions.FPS))));
@@ -256,6 +300,7 @@ public final class GameActivity extends NativeActivity {
         statusWindow.setTouchable(false);
         touchControls = new RacingControlsView(this, this::setTouchKey, this::showTextInput,this::showTiltOptions,this::showFrameLimitOptions);
         touchControls.setPointer(GameActivity::nativePointer);
+        touchControls.setOnline(this::showNfscoCommands);
         controlsWindow = new PopupWindow(touchControls, ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT, false);
         controlsWindow.setClippingEnabled(false);

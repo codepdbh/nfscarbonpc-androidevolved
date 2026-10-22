@@ -141,8 +141,8 @@ void freeEnvironmentA() {bool ok=arg(0)==guestEnvironmentA && guestEnvironmentA;
 void freeEnvironmentW() {bool ok=arg(0)==guestEnvironmentW && guestEnvironmentW;if(ok){heaps->free(GuestHeaps::process,guestEnvironmentW);guestEnvironmentW=0;}ret(ok,1);}
 void moduleFileName() {
     uint32_t module=arg(0),out=arg(1),capacity=arg(2);
-    if(module && module!=imageBase) {lastError=126;ret(0,3);return;}
-    const std::string path="C:\\nfsc\\NFSC.exe";
+    const std::string path=guestModuleFilePath(module);
+    if(path.empty()) {lastError=126;ret(0,3);return;}
     uint32_t count=std::min(capacity,static_cast<uint32_t>(path.size()));
     if(count)std::memcpy(ptr(out,count),path.data(),count);
     if(capacity>count)*static_cast<char*>(ptr(out+count,1))=0;else lastError=122;
@@ -154,6 +154,22 @@ void moduleFileName() {
 // Other exceptions (C++ throw) need SEH dispatch, which is not provided.
 void raiseException(){
     uint32_t code=arg(0),count=arg(2),info=arg(3);
+    if(code!=0x406d1388u){
+    unsigned nativeDepth=0;
+    _Unwind_Backtrace([](_Unwind_Context* context,void* state){
+        auto& depth=*static_cast<unsigned*>(state);auto pc=_Unwind_GetIP(context);Dl_info symbol{};
+        if(dladdr(reinterpret_cast<void*>(pc),&symbol))NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","  exception native %u: %llx",depth,(unsigned long long)(pc-reinterpret_cast<uintptr_t>(symbol.dli_fbase)));
+        return ++depth<24?_URC_NO_REASON:_URC_END_OF_STACK;
+    },&nativeDepth);
+    NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","RaiseException diagnostics: code=%08x count=%u info=%08x cw=%04x top=%d",code,count,info,g_fpu_cw,g_fp_top);
+    for(uint32_t frame=g_ebp,depth=0;frame&&depth<12;++depth){
+        if(!memory->readable(frame,24))break;
+        uint32_t next=read32(frame),caller=read32(frame+4);
+        NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","  exception frame %u: ebp=%08x caller=%08x args=%08x %08x %08x %08x",depth,frame,caller,read32(frame+8),read32(frame+12),read32(frame+16),read32(frame+20));
+        if(next<=frame)break;frame=next;
+    }
+    for(uint32_t i=0;i<std::min(g_icall_trace_idx,16u);++i){uint32_t slot=(g_icall_trace_idx-1-i)&(ICALL_TRACE_SIZE-1);NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","  exception call %08x -> %08x",g_icall_from[slot],g_icall_trace[slot]);}
+    }
     if(code==0x406d1388u&&count>=3&&info&&read32(info)==0x1000u){
         uint32_t name=read32(info+4);
         NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Guest thread %08x named \"%s\"",read32(info+8),name?guestString(name).c_str():"");
@@ -166,8 +182,8 @@ uint32_t guestCommandLineW{};
 void commandLineW() {if(!guestCommandLineW)guestCommandLineW=utf16String("\"C:\\nfsc\\NFSC.exe\"");ret(guestCommandLineW,0);}
 void moduleFileNameW() {
     uint32_t module=arg(0),out=arg(1),capacity=arg(2);
-    if(module && module!=imageBase) {lastError=126;ret(0,3);return;}
-    const std::string path="C:\\nfsc\\NFSC.exe";
+    const std::string path=guestModuleFilePath(module);
+    if(path.empty()) {lastError=126;ret(0,3);return;}
     uint32_t count=std::min(capacity,static_cast<uint32_t>(path.size()));
     for(uint32_t i=0;i<count;++i){uint16_t c=uint8_t(path[i]);std::memcpy(ptr(out+i*2,2),&c,2);}
     if(capacity>count){uint16_t zero=0;std::memcpy(ptr(out+count*2,2),&zero,2);}else lastError=122;
@@ -441,7 +457,7 @@ void regSetValueExA(){
 static constexpr uint32_t desktopWindow=0xf0000300;
 void desktopHandle(){ret(desktopWindow,0);}
 void windowRect(){
-    int32_t rectangle[4]={0,0,static_cast<int32_t>(displayWidth.load()),static_cast<int32_t>(displayHeight.load())};
+    int32_t rectangle[4]={0,0,static_cast<int32_t>(displayModeWidth()),static_cast<int32_t>(displayModeHeight())};
     if(arg(0)!=desktopWindow){auto window=windows.find(arg(0));if(window==windows.end()){lastError=1400;ret(0,2);return;}auto& value=window->second;rectangle[0]=value.x;rectangle[1]=value.y;rectangle[2]=value.x+value.width;rectangle[3]=value.y+value.height;}
     std::memcpy(ptr(arg(1),16),rectangle,16);ret(1,2);
 }
@@ -465,8 +481,8 @@ void loadCursor(){
 void systemMetrics(){
     uint32_t index=arg(0),value;
     switch(index){
-    case 0:case 16:case 59:case 61:case 78:value=displayWidth.load();break;
-    case 1:case 17:case 60:case 62:case 79:value=displayHeight.load();break;
+    case 0:case 16:case 59:case 61:case 78:value=displayModeWidth();break;
+    case 1:case 17:case 60:case 62:case 79:value=displayModeHeight();break;
     case 2:case 3:case 4:case 5:case 6:case 7:case 8:case 32:case 33:case 76:case 77:value=0;break;
     case 19:case 23:case 43:value=0;break; // No physical mouse declared by the Android host yet.
     case 80:value=1;break;

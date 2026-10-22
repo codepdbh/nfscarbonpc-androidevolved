@@ -27,7 +27,7 @@ final class RacingControlsView extends View {
     /** Touches outside every control drive the game's mouse: x/y as fractions of the view, phase 0 down, 1 move, 2 up. */
     interface Pointer { void touch(float x, float y, int phase); }
     // Special controls that do not map to a DirectInput scan code.
-    private static final int MODE = -1, TEXT = -2, STICK = -3, EDIT = -5;
+    private static final int MODE = -1, TEXT = -2, STICK = -3, EDIT = -5, ONLINE = -6;
     private static final int ROUND = 0, PEDAL = 1, WHEEL = 2;
     private final Keys keys;
     private Pointer pointer;
@@ -35,6 +35,9 @@ final class RacingControlsView extends View {
     private float pointerX, pointerY;
     private boolean pointerVisible;
     private final Runnable textInput;
+    private Runnable online = () -> {};
+    /** NFSCO's online commands panel (front-end "online" button). */
+    void setOnline(Runnable online) { this.online = online; }
     private final Runnable configureTilt;
     private final Runnable configureFrameLimit;
     private String style;
@@ -159,6 +162,7 @@ final class RacingControlsView extends View {
             add(w-96,bottom-110,76,"accept",0x1c);
             add(w-176,bottom-62,56,"back",0x01);    // Carbon: Escape in menus and pause in races
             add(w/2-23,bottom-46,46,"keyboard",TEXT);
+            add(w/2+33,bottom-46,46,"online",ONLINE);  // NFSCO: chat and online commands
         }
         invalidate();
     }
@@ -292,6 +296,9 @@ final class RacingControlsView extends View {
                 canvas.drawPath(path,line);break;
             case "back":
                 canvas.drawLine(cx-s*.5f,cy-s*.5f,cx+s*.5f,cy+s*.5f,line);canvas.drawLine(cx+s*.5f,cy-s*.5f,cx-s*.5f,cy+s*.5f,line);break;
+            case "online":   // a globe
+                canvas.drawCircle(cx,cy,s*.85f,line);canvas.drawLine(cx-s*.85f,cy,cx+s*.85f,cy,line);
+                canvas.drawOval(cx-s*.38f,cy-s*.85f,cx+s*.38f,cy+s*.85f,line);break;
             case "keyboard":
                 canvas.drawRoundRect(cx-s*.95f,cy-s*.6f,cx+s*.95f,cy+s*.6f,s*.15f,s*.15f,line);
                 for(int row=0;row<2;++row)for(int col=0;col<4;++col)
@@ -493,6 +500,7 @@ final class RacingControlsView extends View {
             if(c!=null && c==hit(e.getX(index),e.getY(index))) {
                 if(c.scan==MODE) {racing=!racing;layoutControls();}
                 else if(c.scan==TEXT) {releaseAll();textInput.run();}
+                else if(c.scan==ONLINE) {releaseAll();online.run();}
                 else if(c.scan==EDIT) {releaseAll();editing=true;selected=null;}
                 performClick();
             }

@@ -330,6 +330,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity
     setGuestLanguage(value);env->ReleaseStringUTFChars(language,value);
 }
 extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeResolution(JNIEnv*,jclass,jint width,jint height){setGuestResolution(unsigned(width),unsigned(height));}
+extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeGraphicsQuality(JNIEnv*,jclass,jint level){setGuestGraphicsQuality(unsigned(level));}
 extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeFrameLimit(JNIEnv*,jclass,jint cap){setGuestFrameLimit(unsigned(cap));}
 extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeGamepadConnected(JNIEnv*,jclass,jboolean connected){setGuestPadConnected(connected==JNI_TRUE);}
 extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeGamepadDevices(JNIEnv* env,jclass,jintArray ids){

@@ -21,12 +21,17 @@ extern "C" IDirect3D9* Direct3DCreate9(UINT sdk);
 extern "C" void dxvkAndroidSetWindow(ANativeWindow* window);
 extern "C" HWND dxvkAndroidGetWindowHandle();
 extern "C" void dxvkAndroidSetRenderSize(uint32_t width,uint32_t height);
-void setD3D9RenderSize(unsigned width,unsigned height){dxvkAndroidSetRenderSize(width,height);}
+static std::atomic<unsigned> guestModeWidth{0},guestModeHeight{0};
+void setD3D9RenderSize(unsigned width,unsigned height){guestModeWidth=width;guestModeHeight=height;dxvkAndroidSetRenderSize(width,height);}
 #ifndef __ANDROID__
 extern "C" ANativeWindow* dxvkCreateTestWindow();
 extern "C" void dxvkDestroyTestWindow(ANativeWindow* window);
 #endif
 namespace {
+HRESULT guestDisplayMode(HRESULT status,D3DDISPLAYMODE* mode){
+    if(SUCCEEDED(status)&&mode&&guestModeWidth&&guestModeHeight){mode->Width=guestModeWidth;mode->Height=guestModeHeight;}
+    return status;
+}
 constexpr uint32_t methodBase=0x7e000000;
 enum class Kind:uint32_t {D3D9=1,Device=2,Texture=3,Cube=4,Surface=5,VertexBuffer=6,IndexBuffer=7,
     VertexShader=8,PixelShader=9,Declaration=10,StateBlock=11,Query=12,SwapChain=13,VolumeTexture=14,Volume=15};
@@ -263,7 +268,8 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
         case 7:{*argumentCount=5;auto modes=adapterModes(d3d,args[1],static_cast<D3DFORMAT>(args[2]));
             if(args[3]>=modes.size())return D3DERR_INVALIDCALL;
             std::memcpy(pointer(args[4]),&modes[args[3]],sizeof(D3DDISPLAYMODE));return D3D_OK;}
-        case 8:*argumentCount=3;return d3d->GetAdapterDisplayMode(args[1],static_cast<D3DDISPLAYMODE*>(pointer(args[2])));
+        case 8:{*argumentCount=3;auto mode=static_cast<D3DDISPLAYMODE*>(pointer(args[2]));auto status=d3d->GetAdapterDisplayMode(args[1],mode);
+            return guestDisplayMode(status,mode);}
         case 9:*argumentCount=6;return d3d->CheckDeviceType(args[1],static_cast<D3DDEVTYPE>(args[2]),static_cast<D3DFORMAT>(args[3]),static_cast<D3DFORMAT>(args[4]),args[5]);
         case 10:{*argumentCount=7;auto format=static_cast<D3DFORMAT>(args[6]);auto type=static_cast<D3DRESOURCETYPE>(args[5]);
             HRESULT status=d3d->CheckDeviceFormat(args[1],static_cast<D3DDEVTYPE>(args[2]),static_cast<D3DFORMAT>(args[3]),args[4],type,format);
@@ -346,6 +352,7 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
         // Unlocking a buffer that is not locked is D3D_OK in D3D9; Carbon's
         // buffer teardown (0x710D40) unlocks before every Release.
         if(method==12&&!resourceLocks.count(lockKey(args[0],0))){*argumentCount=1;return D3D_OK;}
+        if(method==12){auto open=resourceLocks.find(lockKey(args[0],0));if(open->second.depth>1){--open->second.depth;*argumentCount=1;return D3D_OK;}}
         if(method==12){*argumentCount=1;copyLockBack(args[0],0);HRESULT status=kind==6?static_cast<IDirect3DVertexBuffer9*>(object)->Unlock():static_cast<IDirect3DIndexBuffer9*>(object)->Unlock();releaseLock(args[0],0);return status;}}
     if(kind==14){auto texture=static_cast<IDirect3DVolumeTexture9*>(object);
         if(method==18){*argumentCount=3;IDirect3DVolume9* volume=nullptr;HRESULT status=texture->GetVolumeLevel(args[1],&volume);write(args[2],SUCCEEDED(status)?wrap(volume,Kind::Volume):0);return status;}

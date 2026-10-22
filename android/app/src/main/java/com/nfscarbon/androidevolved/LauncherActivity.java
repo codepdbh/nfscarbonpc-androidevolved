@@ -214,6 +214,10 @@ public final class LauncherActivity extends Activity {
 
     private void refreshOptions() {
         optionsList.removeAllViews();
+        for (String key : new String[] {GameOptions.RESOLUTION, GameOptions.QUALITY, GameOptions.FPS}) {
+            GameOptions.Option option = GameOptions.find(key);
+            optionsList.addView(optionRow(tr(option.title), tr(option.label(GameOptions.get(this, key))), () -> chooseOption(option)));
+        }
         GpuDrivers.Driver driver = GpuDrivers.selected(this);
         // Custom drivers (libadrenotools) exist only in the 64-bit build.
         if (android.os.Process.is64Bit())
@@ -221,8 +225,10 @@ public final class LauncherActivity extends Activity {
         optionsList.addView(optionRow(tr("Probar driver"), tr("GPU y funciones Vulkan"), () -> probeDriver(false)));
         optionsList.addView(optionRow(tr("Idioma del launcher"), Lang.name(this), this::showLanguagePicker));
         optionsList.addView(optionRow(tr("Idioma del juego"), languageLabel(), this::chooseLanguage));
-        for (GameOptions.Option option : GameOptions.ALL)
+        for (GameOptions.Option option : GameOptions.ALL) {
+            if (option.key.equals(GameOptions.RESOLUTION) || option.key.equals(GameOptions.QUALITY) || option.key.equals(GameOptions.FPS)) continue;
             optionsList.addView(optionRow(tr(option.title), tr(option.label(GameOptions.get(this, option.key))), () -> chooseOption(option)));
+        }
         optionsList.addView(optionRow(tr("Servidor online"), GameOptions.onlineServer(this), this::chooseOnlineServer));
         optionsList.addView(optionRow(tr("Buscar actualizaciones"),
                 checkingUpdates ? tr("Comprobando GitHub…") : tr("Versión %s", ReleaseUpdates.installed(this)), () -> checkUpdates(true)));
@@ -519,6 +525,7 @@ public final class LauncherActivity extends Activity {
         startActivity(new Intent(this, GameActivity.class)
                 .putExtra("language", GameOptions.language(this))
                 .putExtra("renderWidth", size[0]).putExtra("renderHeight", size[1])
+                .putExtra("graphicsQuality", Integer.parseInt(GameOptions.get(this, GameOptions.QUALITY)))
                 .putExtra("frameCap", Integer.parseInt(GameOptions.get(this, GameOptions.FPS)))
                 .putExtra("widescreen", GameOptions.get(this, GameOptions.WIDESCREEN).equals("on"))
                 .putExtra("minimapTop", GameOptions.get(this, GameOptions.MINIMAP).equals("top"))

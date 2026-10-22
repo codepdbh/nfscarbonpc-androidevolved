@@ -38,7 +38,11 @@ POOL_BASE, POOL_SIZE, SLOT = 0x01200000, 0x40000, 64
 MODULES = {  # name: (source, guest base, prefix)
     "palmont.dll": (GAME / "NFSCO" / "bin" / "palmont.dll", 0x01060000, "palmont_"),
     "logging.dll": (GAME / "logging.dll", 0x01240000, "logging_"),
+    # ThirteenAG's WidescreenFix (MIT), loaded by the ASI loader next to NFSCO
+    # on PC: camera/FOV, HUD and front-end placement at any aspect ratio.
+    "NFSCarbon.WidescreenFix.asi": (GAME / "scripts" / "NFSCarbon.WidescreenFix.asi", 0x01300000, "wsfix_"),
 }
+PLUGIN_TAGS = ("palmont", "pool", "wsfix")
 
 
 def run(script, *arguments):
@@ -112,11 +116,16 @@ def pool_module(capture):
     return dll, seeds_path
 
 
+CAPTURE = None
+
+
 def main(capture):
+    global CAPTURE
     capture = pathlib.Path(capture).resolve()
+    CAPTURE = capture
     WORK.mkdir(parents=True, exist_ok=True)
     modules = (capture / "modules.txt").read_text()
-    for need in ("palmont.dll 01060000", "logging.dll 01240000", "pool 01200000"):
+    for need in ("palmont.dll 01060000", "logging.dll 01240000", "pool 01200000", "widescreenfix 01300000"):
         if need not in modules:
             sys.exit(f"capture was not made with the guest layout ({need} missing in modules.txt)")
     patched_exe(capture)
@@ -158,7 +167,7 @@ def continuations():
     entry of the patched NFSC.exe, although it is the middle of a function."""
     import re
     found = set()
-    for tag in ("palmont", "pool"):
+    for tag in PLUGIN_TAGS:
         for c in (ROOT / "src/recomp" / f"gen_{tag}").glob(f"{tag}_recomp_*.c"):
             # push/ret jumps, and every direct jump or call into the game
             # (trampolines resume the original function after its prologue).
@@ -184,13 +193,14 @@ def game_pointers():
     import re
     found = set()
     # Immediates of instructions the lifter decoded (mov eax, imm; push imm; ...).
-    for tag in ("palmont", "pool"):
+    for tag in PLUGIN_TAGS:
         for c in (ROOT / "src/recomp" / f"gen_{tag}").glob(f"{tag}_recomp_*.c"):
             for m in re.finditer(r"0x00([4-9][0-9A-F]{5})u", c.read_text()):
                 found.add(int(m.group(1), 16))
     # Aligned values in palmont's data sections (function pointer tables).
-    pe = pefile.PE(str(WORK / "palmont.relocated.dll"))
-    for section in pe.sections:
+    for image in ("palmont", "wsfix"):
+      pe = pefile.PE(str(WORK / f"{image}.relocated.dll"))
+      for section in pe.sections:
         if section.Characteristics & 0x20000000:   # executable: covered above
             continue
         data = section.get_data()
@@ -232,11 +242,44 @@ def lift_game():
     missing = [hex(va) for va in extra + gaps if va not in starts]
     if missing:
         sys.exit(f"forced roots missing from the catalog: {missing}")
+    sites = WORK / "patch_sites.json"
+    json.dump(patch_sites(CAPTURE, catalog), open(sites, "w"))
     out = ROOT / "src/recomp/gen"
     if out.exists():
         import shutil
         shutil.rmtree(out)
-    run("run_lift.py", "lift", exe, catalog, out)
+    run("run_lift.py", "lift", exe, catalog, out, "--patch-sites", sites)
+
+
+def patch_sites(capture, catalog):
+    """Code operands the plugins rewrite at run time: every captured patch
+    inside an instruction's trailing imm32/disp32 (WidescreenFix stores the
+    display's aspect and resolution there; palmont its constants). The lifted
+    instruction reads that dword from memory, so values computed on the phone
+    reach it."""
+    import bisect
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_32
+    exe = pefile.PE(str(WORK / "nfsco.analysis.exe"), fast_load=True)
+    image = exe.get_memory_mapped_image()
+    md = Cs(CS_ARCH_X86, CS_MODE_32)
+    blocks = sorted((b[0], b[1]) for f in json.load(open(catalog))["functions"] for b in f["blocks"])
+    starts = [b[0] for b in blocks]
+    sites = set()
+    for va, new, kind in read_patches(capture):
+        if kind and kind[0] in ("jmp", "call") or not 0x401000 <= va < 0x9C1000:
+            continue
+        i = bisect.bisect_right(starts, va) - 1
+        if i < 0 or not blocks[i][0] <= va < blocks[i][1]:
+            continue
+        start, end = blocks[i]
+        for insn in md.disasm(image[start - 0x400000:end - 0x400000], start):
+            last = insn.address + insn.size
+            if insn.address <= va < last:
+                if insn.size >= 5 and va + len(new) <= last and va >= last - 4 - 3:
+                    sites.add(last - 4)
+                break
+    print(f"[*] {len(sites)} plugin-written code operands read from memory at run time")
+    return sorted(sites)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ public:
     // 32-bit host: two ~480 MB arenas around the 16 MB stack at 0x20000000,
     // all inside GuestMemory's 1 GB. The first starts after the lifted DLLs
     // and NFSCO (guest_modules.inc).
-    static constexpr uint32_t firstArena=0x01300000u,firstArenaEnd=0x1f000000u,secondArena=0x22000000u,secondArenaSize=0x1e000000u;
+    static constexpr uint32_t firstArena=0x01340000u,firstArenaEnd=0x1f000000u,secondArena=0x22000000u,secondArenaSize=0x1e000000u;
 #endif
 private:
     std::map<uint32_t,uint32_t> free_{{firstArena,firstArenaEnd-firstArena},{secondArena,secondArenaSize}};

@@ -1,4 +1,4 @@
-struct ResourceLock {void* native;uint32_t guest,size,pitch,rowBytes,rows,flags;CompressedView compressed{};RECT rectangle{};uint32_t nativePitch{};bool mirrored=false;};
+struct ResourceLock {void* native;uint32_t guest,size,pitch,rowBytes,rows,flags;CompressedView compressed{};RECT rectangle{};uint32_t nativePitch{};bool mirrored=false;uint32_t offset=0,depth=1;};
 std::map<uint64_t,ResourceLock> resourceLocks;
 uint64_t lockKey(uint32_t object,uint32_t subresource){return (uint64_t(object)<<32)|subresource;}
 uint32_t rowBytes(D3DFORMAT format,uint32_t width){
@@ -113,9 +113,20 @@ HRESULT lockSurface(uint32_t address,uint32_t output,const RECT* rect,uint32_t f
     D3DLOCKED_RECT lock{};status=surface->LockRect(&lock,rect,flags);if(FAILED(status))return status;return lockPixels(address,0,desc,lock,rect,flags,output);
 }
 template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t offset,uint32_t size,uint32_t output,uint32_t flags){
-    if(!output||resourceLocks.count(lockKey(address,0)))return D3DERR_INVALIDCALL;
+    if(!output)return D3DERR_INVALIDCALL;
     auto buffer=nativeObject<Buffer>(address);Desc desc{};HRESULT status=buffer->GetDesc(&desc);if(FAILED(status))return status;
     if(offset>desc.Size||(size&&size>desc.Size-offset))return D3DERR_INVALIDCALL;
+    // A buffer may be locked again before it is unlocked (D3D9 counts the
+    // locks; Carbon reads vertices back that way while loading a race): hand
+    // out the open copy, offset to the range asked for; only the last Unlock
+    // copies back.
+    if(auto open=resourceLocks.find(lockKey(address,0));open!=resourceLocks.end()){
+        auto& lock=open->second;uint32_t end=size?offset+size:desc.Size;
+        auto& entry=objects.at(address);
+        if(lock.mirrored&&entry.mirror){++lock.depth;write(output,entry.mirror+offset);return D3D_OK;}
+        if(offset<lock.offset||end>lock.offset+lock.size)throw std::runtime_error("D3D9 nested buffer lock outside the open range");
+        ++lock.depth;write(output,lock.guest+(offset-lock.offset));return D3D_OK;
+    }
     // Dynamic write-only buffers (particles, HUD, skids: locked many times a
     // frame) keep one guest copy for their lifetime. Every write reaches the
     // native buffer through these locks, so the copy already holds what the
@@ -129,10 +140,10 @@ template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t of
     void* native=nullptr;status=buffer->Lock(offset,size,&native,flags);if(FAILED(status))return status;
     if(!size)size=desc.Size-offset;
     if(entry.mirror){
-        resourceLocks.emplace(lockKey(address,0),ResourceLock{native,entry.mirror+offset,size,size,size,1,flags,{},{},0,true});
+        resourceLocks.emplace(lockKey(address,0),ResourceLock{native,entry.mirror+offset,size,size,size,1,flags,{},{},0,true,offset});
         write(output,entry.mirror+offset);return D3D_OK;
     }
     uint32_t temporary=allocateGuest(size);
     if(!(flags&D3DLOCK_DISCARD))std::memcpy(pointer(temporary),native,size);
-    resourceLocks.emplace(lockKey(address,0),ResourceLock{native,temporary,size,size,size,1,flags});write(output,temporary);return D3D_OK;
+    resourceLocks.emplace(lockKey(address,0),ResourceLock{native,temporary,size,size,size,1,flags,{},{},0,false,offset});write(output,temporary);return D3D_OK;
 }

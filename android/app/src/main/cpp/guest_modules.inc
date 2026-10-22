@@ -29,6 +29,10 @@ constexpr GuestModuleSpec guestModuleSpecs[]={
     // (tools/nfsco_capture.c, scripts/prepare_nfsco.py).
     {"palmont.dll",0x01060000u,0x10000000u,0x17d000u,true,"NFSCO\\bin\\"},
     {"logging.dll",0x01240000u,0x10000000u,0x28000u,true},
+    // ThirteenAG's NFSCarbon.WidescreenFix (MIT; the player's scripts\ copy),
+    // which the ASI loader runs next to NFSCO on PC: camera/FOV, HUD and
+    // front-end placement at the phone's aspect ratio.
+    {"nfscarbon.widescreenfix.asi",0x01300000u,0x10000000u,0x40000u,true,"scripts\\"},
 };
 // NFSCO's trampoline pool: palmont's executable allocations are served from
 // here in order (k32VirtualAlloc), at the addresses the capture recorded and
@@ -48,9 +52,21 @@ uint32_t nfscoPoolAllocate(uint32_t bytes){
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO executable allocation %08x (%u bytes)",block,bytes);
     return block;
 }
-// Static TLS (__declspec(thread)): only palmont.dll has it. Its template is
-// copied into a block per guest thread, reached through TEB+0x2C slot 0.
-struct StaticTls {uint32_t start=0,bytes=0,zeroFill=0;bool active=false;} staticTls;
+// Static TLS (__declspec(thread)) of palmont.dll and the WidescreenFix: each
+// module's template is copied into a block per guest thread, reached through
+// the TEB+0x2C array at the module's slot.
+struct StaticTls {uint32_t start=0,bytes=0,zeroFill=0;};
+std::vector<StaticTls> staticTls;
+constexpr uint32_t staticTlsSlots=16;
+void attachStaticTlsSlot(uint32_t tib,uint32_t slot){
+    uint32_t array=read32(tib+0x2c);
+    if(!array){array=allocate(staticTlsSlots*4);std::memset(ptr(array,staticTlsSlots*4),0,staticTlsSlots*4);write32(tib+0x2c,array);}
+    if(read32(array+slot*4))return;
+    auto& tls=staticTls[slot];uint32_t total=tls.bytes+tls.zeroFill+16,block=allocate(total);
+    std::memset(ptr(block,total),0,total);
+    if(tls.bytes)std::memcpy(ptr(block,tls.bytes),ptr(tls.start,tls.bytes),tls.bytes);
+    write32(array+slot*4,block);
+}
 // A minimal PEB shared by every guest thread (TEB+0x30): image base, process
 // heap, Windows XP SP2 version and empty RTL_USER_PROCESS_PARAMETERS. NFSCO's
 // CRT reads PEB->ProcessParameters->Flags to tell a packaged app.
@@ -64,11 +80,7 @@ uint32_t guestPeb(){
 }
 void attachStaticTls(uint32_t tib){
     if(!read32(tib+0x30))write32(tib+0x30,guestPeb());
-    if(!staticTls.active||read32(tib+0x2c))return;
-    uint32_t total=staticTls.bytes+staticTls.zeroFill+16,block=allocate(total),array=allocate(16);
-    std::memset(ptr(block,total),0,total);
-    if(staticTls.bytes)std::memcpy(ptr(block,staticTls.bytes),ptr(staticTls.start,staticTls.bytes),staticTls.bytes);
-    std::memset(ptr(array,16),0,16);write32(array,block);write32(tib+0x2c,array);
+    for(uint32_t slot=0;slot<staticTls.size();++slot)attachStaticTlsSlot(tib,slot);
 }
 bool isLiftedModuleName(const std::string& dll){for(auto& s:guestModuleSpecs)if(dll==s.name)return s.lifted;return false;}
 struct GuestModule {
@@ -83,6 +95,12 @@ GuestModule* findGuestModule(const std::string& name){
     return nullptr;
 }
 bool isGuestModule(uint32_t handle){return findGuestModule(handle)!=nullptr;}
+std::string guestModuleFilePath(uint32_t handle){
+    if(!handle||handle==imageBase)return "C:\\nfsc\\NFSC.exe";
+    auto* module=findGuestModule(handle);
+    if(!module)return {};
+    return std::string("C:\\nfsc\\")+module->spec->folder+module->spec->name;
+}
 uint32_t guestModuleContaining(uint32_t address){for(auto& [base,module]:guestModules)if(address>=base&&address-base<module.spec->imageSize)return base;return 0;}
 uint32_t guestModuleHandle(const std::string& name){auto* module=findGuestModule(name);return module?module->spec->base:0;}
 bool guestModuleExport(uint32_t handle,const std::string& name,uint32_t& va){
@@ -141,13 +159,13 @@ uint32_t loadGuestModule(const std::string& name){
     if(tls.Size){
         moduleRange(size,tls.VirtualAddress,24);uint32_t directory=base+tls.VirtualAddress;
         uint32_t start=read32(directory),end=read32(directory+4),index=read32(directory+8),callbacks=read32(directory+12);
-        if(staticTls.active)throw GuestStop(name+": a second module with static TLS");
+        if(staticTls.size()>=staticTlsSlots)throw GuestStop(name+": too many modules with static TLS");
         if(callbacks&&read32(callbacks))throw GuestStop(name+": TLS callbacks are not provided");
         if(end<start||end-start>0x10000)throw GuestStop(name+": bad TLS template");
-        staticTls={start,end-start,read32(directory+16),true};write32(index,0);
+        uint32_t slot=uint32_t(staticTls.size());staticTls.push_back({start,end-start,read32(directory+16)});write32(index,slot);
         attachStaticTls(g_fs_base);
         for(auto& thread:guestThreads)if(thread->tib)attachStaticTls(thread->tib);
-        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","%s: static TLS %u bytes in slot 0",name.c_str(),end-start);
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","%s: static TLS %u bytes in slot %u",name.c_str(),end-start,slot);
     }
     size_t ownImports=deferredModuleImports.size();
     bindImports(base,size,opt.DataDirectory[PE_DIR_IMPORT].VirtualAddress,opt.DataDirectory[PE_DIR_IMPORT].Size);
@@ -276,10 +294,113 @@ void applyNfscoLanguage(){
     std::ofstream out(path,std::ios::binary|std::ios::trunc);out<<text;
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO language set to %s",guestLanguage.c_str());
 }
+// WidescreenFix reads ResX/ResY from its .ini (0: the desktop size); give it
+// the launcher's render size, creating the .ini with the PC defaults if the
+// copy has none.
+void writeWidescreenFixIni(){
+    auto path=gamePath("C:\\nfsc\\scripts\\NFSCarbon.WidescreenFix.ini");
+    std::string text;{std::ifstream in(path,std::ios::binary);if(in)text.assign(std::istreambuf_iterator<char>(in),{});}
+    if(text.empty())text="[MAIN]\nResX = 0\nResY = 0\nFixHUD = 1\nFixFOV = 1\nScaling = 2\nHudWidescreenMode = 1\nFMVWidescreenMode = 1\n"
+                         "[HUD]\nPiPPos1 = 0.203125\nPiPPos2 = 0.001953\nRearviewMirrorPos1 = -0.308594\nRearviewMirrorPos2 = 0.654053\n"
+                         "[MISC]\nSkipIntro = 0\nWindowedMode = 0\nLightingFix = 1\nCarShadowFix = 1\nCustomUserFilesDirectoryInGameDir = 0\nExperimentalCrashFix = 1\n";
+    auto set=[&](const char* key,uint32_t value){
+        auto at=text.find(std::string("\n")+key);if(at==std::string::npos)return;
+        auto end=text.find('\n',at+1);if(end==std::string::npos)end=text.size();
+        text.replace(at+1,end-at-1,std::string(key)+" = "+std::to_string(value));
+    };
+    set("ResX",displayModeWidth());set("ResY",displayModeHeight());
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream out(path,std::ios::binary|std::ios::trunc);out<<text;
+}
+// NFSCO creates its window and the game device at NFSCO/window.json's size,
+// saved from the first run: keep it equal to the launcher's render size so
+// the resolution chosen there is the one used.
+void writeNfscoWindow(){
+    auto path=gamePath("C:\\nfsc\\NFSCO\\window.json");
+    std::string text;{std::ifstream in(path,std::ios::binary);if(in)text.assign(std::istreambuf_iterator<char>(in),{});}
+    if(text.empty())text="{\n\t\"height\": 0,\n\t\"mode\": \"borderless\",\n\t\"width\": 0\n}";
+    auto set=[&](const char* key,uint32_t value){
+        auto at=text.find(std::string("\"")+key+"\"");if(at==std::string::npos)return;
+        auto colon=text.find(':',at);auto end=text.find_first_of(",}\n\r",colon);if(colon==std::string::npos||end==std::string::npos)return;
+        text.replace(colon+1,end-colon-1," "+std::to_string(value));
+    };
+    set("width",displayModeWidth());set("height",displayModeHeight());
+    std::ofstream out(path,std::ios::binary|std::ios::trunc);out<<text;
+}
+// Give touch users enough time to read search results and room numbers.
+// Retain longer user durations and slower fades, and preserve other settings.
+void writeNfscoChat(){
+    auto path=gamePath("C:\\nfsc\\NFSCO\\messenger.json");
+    std::string text;{std::ifstream in(path,std::ios::binary);if(in)text.assign(std::istreambuf_iterator<char>(in),{});}
+    if(text.empty())return; // Let NFSCO create its complete default configuration.
+    bool changed=false;
+    auto adjust=[&](const char* key,double limit,bool minimum){
+        auto at=text.find(std::string("\"")+key+"\"");if(at==std::string::npos)return;
+        auto colon=text.find(':',at);if(colon==std::string::npos)return;
+        auto begin=text.find_first_not_of(" \t\r\n",colon+1);if(begin==std::string::npos)return;
+        char* end=nullptr;double value=std::strtod(text.c_str()+begin,&end);
+        if(end==text.c_str()+begin||!std::isfinite(value))return;
+        if(minimum?value>=limit:(value>0&&value<=limit))return;
+        text.replace(begin,size_t(end-(text.c_str()+begin)),std::to_string(limit));changed=true;
+    };
+    adjust("display_time",20.0,true);
+    adjust("fade_speed",0.8,false);
+    if(!changed)return;
+    std::ofstream out(path,std::ios::binary|std::ios::trunc);out<<text;
+    if(!out)throw GuestStop("Could not save NFSCO chat display settings");
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO chat: at least 20 seconds visible, slower fade");
+}
+// NFSCO reads these before installing its game settings hooks. Keep unrelated
+// preferences (language, movies, audio and online settings) as the player saved them.
+void writeNfscoGraphics(){
+    if(!graphicsQuality)return;
+    auto path=gamePath("C:\\nfsc\\NFSCO\\registry.json");
+    std::string text;{std::ifstream in(path,std::ios::binary);if(in)text.assign(std::istreambuf_iterator<char>(in),{});}
+    if(text.empty())text="{}";
+    auto set=[&](const char* key,const std::string& value){
+        auto at=text.find(std::string("\"")+key+"\"");
+        if(at==std::string::npos){
+            auto end=text.find_last_of('}');if(end==std::string::npos)throw GuestStop("Invalid NFSCO graphics settings file");
+            auto open=text.find('{');if(open==std::string::npos)throw GuestStop("Invalid NFSCO graphics settings file");
+            bool empty=text.find_first_not_of(" \t\r\n",open+1)==end;
+            text.insert(end,(empty?"":",")+std::string("\n\t\"")+key+"\": "+value+"\n");return;
+        }
+        auto colon=text.find(':',at);auto end=text.find_first_of(",}\r\n",colon);
+        if(colon==std::string::npos||end==std::string::npos)throw GuestStop("Invalid NFSCO graphics setting");
+        text.replace(colon+1,end-colon-1," "+value);
+    };
+    const bool low=graphicsQuality==1,high=graphicsQuality==3;
+    auto number=[&](const char* key,unsigned value){set(key,std::to_string(value));};
+    auto boolean=[&](const char* key,bool value){set(key,value?"true":"false");};
+    number("performance_level",5); // Custom: apply the individual values below.
+    number("anti_aliasing",0);
+    number("world_detail",low?0:high?3:1);
+    number("vehicle_detail",low?0:1);
+    number("shader_detail",low?0:high?3:1);
+    number("shadow_detail",high?2:0);
+    number("reflection_rate",high?3:0);
+    number("road_reflection_detail",high?2:0);
+    number("texture_filtering",low?0:high?2:1);
+    boolean("are_particles_enabled",!low);
+    boolean("are_weather_effects_enabled",high);
+    boolean("is_post_processing_enabled",high);
+    boolean("is_visual_treatment_enabled",!low);
+    boolean("is_vertical_synchronization_enabled",false);
+    auto temporary=path;temporary+=".tmp";
+    {std::ofstream out(temporary,std::ios::binary|std::ios::trunc);out<<text;if(!out)throw GuestStop("Could not save NFSCO graphics settings");}
+    std::filesystem::rename(temporary,path);
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO graphics profile %u (1 low, 2 medium, 3 high)",graphicsQuality);
+}
 void startNfsco(){
     memory->commit(nfscoPoolBase,nfscoPoolSize);
     applyNfscoLanguage();
     applyNfscoTranslation();
+    writeWidescreenFixIni();
+    writeNfscoWindow();
+    writeNfscoChat();
+    writeNfscoGraphics();
+    if(!loadGuestModule("nfscarbon.widescreenfix.asi"))
+        throw GuestStop("WidescreenFix is required: copy scripts/NFSCarbon.WidescreenFix.asi into the nfsc folder");
     attachStaticTls(g_fs_base);for(auto& thread:guestThreads)if(thread->tib)attachStaticTls(thread->tib);  // PEB
     uint32_t palmont=loadGuestModule("palmont.dll"),attach=0;
     if(!palmont)throw GuestStop("NFSCO is required: copy the NFSCO folder (with bin/palmont.dll) and logging.dll into the nfsc folder");

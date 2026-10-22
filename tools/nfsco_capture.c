@@ -20,6 +20,7 @@
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <intrin.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,6 +88,8 @@ static unsigned char* map_game(const char* exe) {
 #define PALMONT_SIZE 0x0017D000u
 #define POOL_BASE    0x01200000u
 #define POOL_SIZE    0x00040000u
+#define WSFIX_BASE   0x01300000u   /* ThirteenAG's NFSCarbon.WidescreenFix.asi, rebased */
+#define WSFIX_SIZE   0x00040000u
 #define LOGGING_BASE 0x01240000u   /* logging.dll, also rebased (guest_modules.inc layout) */
 #define LOGGING_SIZE 0x00028000u
 static DWORD g_pool_next = POOL_BASE;
@@ -175,8 +178,9 @@ static void dump(void) {
         if ((DWORD)p >= 0x7fff0000u) break;
     }
     if (g_pool_next > POOL_BASE) write_file("pool.bin", (void*)POOL_BASE, g_pool_next - POOL_BASE);
-    used = snprintf(report, sizeof report, "pool %08X %08X\npalmont.dll %08X\nlogging.dll %08X\n", POOL_BASE, g_pool_next - POOL_BASE,
-                    (unsigned)GetModuleHandleA("palmont.dll"), (unsigned)GetModuleHandleA("logging.dll"));
+    used = snprintf(report, sizeof report, "pool %08X %08X\npalmont.dll %08X\nlogging.dll %08X\nwidescreenfix %08X\n", POOL_BASE, g_pool_next - POOL_BASE,
+                    (unsigned)GetModuleHandleA("palmont.dll"), (unsigned)GetModuleHandleA("logging.dll"),
+                    (unsigned)GetModuleHandleA("NFSCarbon.WidescreenFix.asi"));
     write_file("modules.txt", report, used);
     printf("nfsco_capture: %u changed bytes in %u ranges, %d new executable regions -> %s\n", changed, ranges, dumped, g_out);
 }
@@ -193,7 +197,8 @@ static int run_child(void) {
     }
     if (!VirtualAllocEx(pi.hProcess, (void*)PALMONT_BASE, PALMONT_SIZE, MEM_RESERVE, PAGE_NOACCESS) ||
         !VirtualAllocEx(pi.hProcess, (void*)POOL_BASE, POOL_SIZE, MEM_RESERVE, PAGE_NOACCESS) ||
-        !VirtualAllocEx(pi.hProcess, (void*)LOGGING_BASE, LOGGING_SIZE, MEM_RESERVE, PAGE_NOACCESS)) {
+        !VirtualAllocEx(pi.hProcess, (void*)LOGGING_BASE, LOGGING_SIZE, MEM_RESERVE, PAGE_NOACCESS) ||
+        !VirtualAllocEx(pi.hProcess, (void*)WSFIX_BASE, WSFIX_SIZE, MEM_RESERVE, PAGE_NOACCESS)) {
         TerminateProcess(pi.hProcess, 1); fail("reserve the palmont/pool/logging ranges in the child");
     }
     ResumeThread(pi.hThread);
@@ -215,6 +220,17 @@ int main(int argc, char** argv) {
     HMODULE logging = LoadLibraryA("logging.dll");
     if (logging != (HMODULE)LOGGING_BASE) fail("logging.dll not at its fixed base (use the rebase_fixed.py copy)");
     snapshot_regions();
+    /* The ASI loader (dinput8.dll) loads scripts\*.asi with the game's imports,
+     * before the bootstrapper attaches palmont: same order here. */
+    /* Like NFSCO's bootstrapper, make the game image the process's main module
+     * (PEB->ImageBaseAddress): ASI plugins scan GetModuleHandle(NULL). */
+    ((PVOID*)__readfsdword(0x30))[2] = (PVOID)0x00400000;
+    if (GetFileAttributesA("scripts\\NFSCarbon.WidescreenFix.asi") != INVALID_FILE_ATTRIBUTES) {
+        VirtualFree((void*)WSFIX_BASE, 0, MEM_RELEASE);
+        HMODULE wsfix = LoadLibraryA("scripts\\NFSCarbon.WidescreenFix.asi");
+        if (wsfix != (HMODULE)WSFIX_BASE) fail("NFSCarbon.WidescreenFix.asi not at its fixed base (use the rebase_fixed.py copy)");
+        printf("nfsco_capture: WidescreenFix at %p\n", (void*)wsfix);
+    }
     VirtualFree((void*)PALMONT_BASE, 0, MEM_RELEASE);   /* free just for the loader */
     HMODULE palmont = LoadLibraryA("NFSCO\\bin\\palmont.dll");
     if (!palmont) fail("load palmont.dll");

@@ -43,7 +43,7 @@ def main(src, base, dst, seeds_path):
     def in_code(va):
         return any(base + s.VirtualAddress <= va < base + s.VirtualAddress + s.Misc_VirtualSize for s in code)
     seeds = [{"address": base + pe.OPTIONAL_HEADER.AddressOfEntryPoint, "note": "entry"}]
-    for e in pe.DIRECTORY_ENTRY_EXPORT.symbols:
+    for e in getattr(getattr(pe, "DIRECTORY_ENTRY_EXPORT", None), "symbols", []):  # an ASI plugin exports nothing
         seeds.append({"address": base + e.address, "note": "export " + (e.name or b"#%d" % e.ordinal).decode()})
     image = pe.get_memory_mapped_image()
     pointers = set()

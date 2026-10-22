@@ -70,6 +70,25 @@ final class Lang {
     private static void add(String es, String en, String pt) { TEXTS.put(es, new String[] {en, pt}); }
 
     static {
+        add("Calidad gráfica", "Graphics quality", "Qualidade gráfica");
+        add("Baja · sin sombras ni reflejos", "Low · no shadows or reflections", "Baixa · sem sombras nem reflexos");
+        add("Media · efectos reducidos", "Medium · reduced effects", "Média · efeitos reduzidos");
+        add("Alta · más detalle", "High · more detail", "Alta · mais detalhes");
+        add("Conservar ajustes del juego", "Keep game settings", "Manter ajustes do jogo");
+        // NFSCO online panel.
+        add("Chat o comando…", "Chat or command…", "Chat ou comando…");
+        add("Ver jugadores conectados", "Show connected players", "Ver jogadores conectados");
+        add("Buscar carrera…", "Search a race…", "Buscar corrida…");
+        add("Crear carrera (ID)…", "Create race (ID)…", "Criar corrida (ID)…");
+        add("Unirse a carrera (ID)…", "Join race (ID)…", "Entrar na corrida (ID)…");
+        add("Iniciar mi carrera", "Start my race", "Iniciar minha corrida");
+        add("Salir de la carrera", "Leave the race", "Sair da corrida");
+        add("NFSCO online (nfsco.club)", "NFSCO online (nfsco.club)", "NFSCO online (nfsco.club)");
+        add("Mensaje o /comando", "Message or /command", "Mensagem ou /comando");
+        add("Nombre o ID de la carrera", "Race name or ID", "Nome ou ID da corrida");
+        add("Enviar", "Send", "Enviar");
+        add("Cerrar", "Close", "Fechar");
+        add("Solo letras sin tildes, números y signos básicos", "Plain letters, digits and basic symbols only", "Apenas letras sem acento, números e símbolos básicos");
         // Language picker.
         add("Elige el idioma del launcher", "Choose the launcher language", "Escolha o idioma do launcher");
         add("Idioma del launcher", "Launcher language", "Idioma do launcher");

@@ -54,7 +54,7 @@ endforeach()
 #            and its hook trampolines.
 # Do not silently produce an APK with a missing module.
 set(SERVER_GEN_DIR "${NFS_ROOT}/src/recomp/gen_server")
-foreach(module server d3dx msvcr msvcp palmont logging pool)
+foreach(module server d3dx msvcr msvcp palmont logging pool wsfix)
     file(GLOB module_sources CONFIGURE_DEPENDS "${NFS_ROOT}/src/recomp/gen_${module}/${module}_recomp_*.c")
     if(NOT module_sources)
         message(FATAL_ERROR "No ${module} code in src/recomp/gen_${module}: run scripts/prepare_modules.py")

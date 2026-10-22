@@ -94,7 +94,7 @@ case 3:{*argumentCount=6;return resource->Present(static_cast<const RECT*>(point
 case 4:{*argumentCount=2;return resource->GetFrontBufferData(nativeObject<IDirect3DSurface9>(args[1]));}
 case 5:{*argumentCount=4;IDirect3DSurface9* result3=nullptr;HRESULT status=resource->GetBackBuffer(static_cast<UINT>(args[1]),static_cast<D3DBACKBUFFER_TYPE>(args[2]),args[3]?&result3:nullptr);if(args[3])write(args[3],SUCCEEDED(status)?wrap(result3,Kind::Surface):0);return status;}
 case 6:{*argumentCount=2;return resource->GetRasterStatus(static_cast<D3DRASTER_STATUS*>(pointer(args[1])));}
-case 7:{*argumentCount=2;return resource->GetDisplayMode(static_cast<D3DDISPLAYMODE*>(pointer(args[1])));}
+case 7:{*argumentCount=2;auto mode=static_cast<D3DDISPLAYMODE*>(pointer(args[1]));return guestDisplayMode(resource->GetDisplayMode(mode),mode);}
 case 8:{*argumentCount=2;IDirect3DDevice9* result1=nullptr;HRESULT status=resource->GetDevice(args[1]?&result1:nullptr);if(args[1])write(args[1],SUCCEEDED(status)?wrap(result1,Kind::Device):0);return status;}
 }}
 if(kind==14){auto resource=static_cast<IDirect3DVolumeTexture9*>(object);switch(method){

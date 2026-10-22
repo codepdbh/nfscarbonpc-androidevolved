@@ -21,13 +21,16 @@ final class GameOptions {
     }
 
     static final String RESOLUTION = "resolution", FPS = "fps", WIDESCREEN = "widescreen", LATENCY = "latency",
-            TEXTURES = "textures", MINIMAP = "minimap", LANGUAGE = "language", GAMEPAD = "gamepad";
+            TEXTURES = "textures", MINIMAP = "minimap", LANGUAGE = "language", GAMEPAD = "gamepad", QUALITY = "quality";
 
     static final Option[] ALL = {
             new Option(RESOLUTION, "Resolución interna", "75",
                     new String[] {"100", "75", "50", "720", "480", "360"},
                     new String[] {"Nativa · máxima calidad", "75% · equilibrada", "50% · máximo rendimiento",
                             "720p · adaptada a la pantalla", "480p · rendimiento", "360p · máximo rendimiento"}),
+            new Option(QUALITY, "Calidad gráfica", "0",
+                    new String[] {"1", "2", "3", "0"},
+                    new String[] {"Baja · sin sombras ni reflejos", "Media · efectos reducidos", "Alta · más detalle", "Conservar ajustes del juego"}),
             new Option(FPS, "Límite de FPS", "120",
                     new String[] {"30", "60", "90", "120", "0"},
                     new String[] {"30 FPS · ahorra batería", "60 FPS", "90 FPS", "120 FPS", "Sin límite"}),

@@ -26,4 +26,5 @@ void setGuestPointer(float x,float y,int phase);
 void typeGuestText(const std::vector<uint32_t>& characters);
 void setGuestLanguage(const char* language);
 void setGuestResolution(unsigned width,unsigned height);
+void setGuestGraphicsQuality(unsigned level);
 void setGuestFrameLimit(unsigned framesPerSecond);

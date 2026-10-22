@@ -366,7 +366,46 @@ void wsaSendTo(){
     if(sentOut)write32(sentOut,g_eax);g_eax=0;
 }
 
+// Private profile (.ini) reads for ThirteenAG's WidescreenFix: [section]
+// key = value, ';' or '//' comments, case-insensitive names.
+std::string profileValue(const std::string& file,const std::string& section,const std::string& key,bool& found){
+    found=false;std::ifstream in(gamePath(file));std::string line,current;
+    auto trim=[](std::string s){size_t a=s.find_first_not_of(" \t\r"),b=s.find_last_not_of(" \t\r");return a==std::string::npos?std::string():s.substr(a,b-a+1);};
+    while(std::getline(in,line)){
+        for(const char* comment:{";","//"})if(auto at=line.find(comment);at!=std::string::npos)line.erase(at);
+        line=trim(line);if(line.empty())continue;
+        if(line.front()=='['){auto close=line.find(']');current=lower(trim(line.substr(1,close==std::string::npos?std::string::npos:close-1)));continue;}
+        auto equals=line.find('=');if(equals==std::string::npos)continue;
+        if(current==lower(section)&&lower(trim(line.substr(0,equals)))==lower(key)){found=true;return trim(line.substr(equals+1));}
+    }
+    return {};
+}
+void k32GetPrivateProfileIntA(){
+    bool found;auto value=profileValue(guestString(arg(3)),guestString(arg(0)),guestString(arg(1)),found);
+    ret(found?uint32_t(std::strtol(value.c_str(),nullptr,0)):arg(2),4);
+}
+void k32GetPrivateProfileStringA(){
+    uint32_t out=arg(3),size=arg(4);if(!out||!size){ret(0,6);return;}
+    if(!arg(0)||!arg(1))throw GuestStop("GetPrivateProfileStringA section/key enumeration is not provided");
+    bool found;auto value=profileValue(guestString(arg(5)),guestString(arg(0)),guestString(arg(1)),found);
+    if(!found)value=arg(2)?guestString(arg(2)):std::string();
+    uint32_t count=std::min<uint32_t>(uint32_t(value.size()),size-1);
+    std::memcpy(ptr(out,count),value.data(),count);*static_cast<char*>(ptr(out+count,1))=0;ret(count,6);
+}
+void userGetMonitorInfoA(){
+    uint32_t out=arg(1),size=read32(out);
+    if(arg(0)!=guestMonitor||(size!=40&&size!=72)){lastError=87;ret(0,2);return;}
+    std::memset(ptr(out+4,size-4),0,size-4);
+    for(uint32_t rect:{4u,20u}){write32(out+rect+8,displayModeWidth());write32(out+rect+12,displayModeHeight());}
+    write32(out+36,1);
+    if(size==72){static const char device[]="\\\\.\\DISPLAY1";std::memcpy(ptr(out+40,sizeof device),device,sizeof device);}
+    ret(1,2);
+}
+
 const std::map<std::string,recomp_func_t> nfscoFunctions={
+    {"GetPrivateProfileIntA",k32GetPrivateProfileIntA},{"GetPrivateProfileStringA",k32GetPrivateProfileStringA},
+    {"GetMonitorInfoA",userGetMonitorInfoA},
+    {"CreateEventW",wideCall<createEvent,4,4,3>},
     {"WSASendTo",wsaSendTo},
     {"GetStockObject",gdiGetStockObject},{"ClientToScreen",userIdentityPoint},{"ScreenToClient",userIdentityPoint},
     {"GetCapture",userZero0},{"GetMessageExtraInfo",userZero0},{"IsWindowUnicode",userIsWindowUnicode},

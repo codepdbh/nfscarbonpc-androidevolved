@@ -1,4 +1,6 @@
 #include <random>
+#include <unwind.h>
+#include <dlfcn.h>
 #include <sys/statvfs.h>
 #include <initializer_list>
 #include <set>
@@ -65,6 +67,9 @@ uint32_t g_icall_trace_idx, g_icall_count;
 namespace {
 std::atomic<uint32_t> displayWidth{1280},displayHeight{720};
 std::atomic<uint32_t> renderWidth{0},renderHeight{0};
+unsigned graphicsQuality=0;
+uint32_t displayModeWidth();
+uint32_t displayModeHeight();
 std::atomic<unsigned> frameLimit{0};
 std::string hex(uint32_t va) {
     std::ostringstream out; out << "0x" << std::hex << std::setw(8) << std::setfill('0') << va;
@@ -189,6 +194,51 @@ struct WaitScope {
 };
 std::atomic<int64_t> lastPresentMs{0};
 int64_t steadyMs(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+// Opt-in snapshots for loading screens that keep presenting frames. Unlike
+// attaching a debugger, this does not stop Android's UI/input threads.
+void sampleOnlineLoading(){
+    static int64_t next=0;auto now=steadyMs();if(now<next)return;next=now+10000;
+    if(access((hostGameRoot+"/nfsc_online_trace").c_str(),F_OK)!=0)return;
+    NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","Online snapshot render=%08x",g_cur_func);
+    // Preserve the loader globals and mod state for inspection even
+    // after Android closes the process. Read while this thread owns the guest.
+    if(memory&&memory->readable(0xa99b00,0x200)&&read32(0xa99bbc)==6){
+        std::ofstream snapshot(hostGameRoot+"/nfsc_online_state.bin",std::ios::binary|std::ios::trunc);
+        auto region=[&](uint32_t va,uint32_t bytes){
+            if(!memory->readable(va,bytes))return;
+            snapshot.write(reinterpret_cast<const char*>(&va),4);snapshot.write(reinterpret_cast<const char*>(&bytes),4);
+            snapshot.write(static_cast<const char*>(memory->address(va,bytes)),bytes);
+        };
+        region(0xa99b00,0x200);region(0x9c0000,0x26c000);region(0x11ca000,0x8000);
+        std::vector<uint32_t> pending;std::set<uint32_t> seen;
+        auto scan=[&](uint32_t va,uint32_t bytes){for(uint32_t off=0;off<bytes;off+=4){auto v=read32(va+off);if(v>=0x10000000u&&v<0x20000000u&&!(v&3)&&!seen.count(v)&&memory->readable(v,0x100)){seen.insert(v);pending.push_back(v);}}};
+        scan(0xa99b00,0x200);
+        scan(0x11ca000,0x400);scan(0xb74dd0,0x100);
+        for(size_t i=0;i<pending.size()&&i<128;++i){auto va=pending[i];region(va,0x100);scan(va,0x100);}
+        // Capture executable pages while loading.
+        // Comparing these bytes with the lift input exposes late plugin patches
+        // without attaching a debugger or pausing the Android input thread.
+        {
+            std::ofstream code(hostGameRoot+"/nfsc_online_code.bin",std::ios::binary|std::ios::trunc);
+            for(uint32_t va=0x401000;code&&va<0x9c0000;va+=0x1000){
+                if(!memory->readable(va,0x1000))continue;
+                uint32_t bytes=0x1000;code.write(reinterpret_cast<const char*>(&va),4);code.write(reinterpret_cast<const char*>(&bytes),4);
+                code.write(static_cast<const char*>(memory->address(va,bytes)),bytes);
+            }
+        }
+    }
+    unsigned depth=0;
+    _Unwind_Backtrace([](_Unwind_Context* context,void* state){
+        auto& depth=*static_cast<unsigned*>(state);auto pc=_Unwind_GetIP(context);Dl_info symbol{};
+        if(dladdr(reinterpret_cast<void*>(pc),&symbol))NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","  online native %u: %llx",depth,(unsigned long long)(pc-reinterpret_cast<uintptr_t>(symbol.dli_fbase)));
+        return ++depth<20?_URC_NO_REASON:_URC_END_OF_STACK;
+    },&depth);
+    std::lock_guard<std::mutex> lock(threadTracesMutex);
+    for(auto& [id,trace]:threadTraces){
+        auto wait=trace->wait.load();auto handle=trace->handle.load();
+        NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","  online thread %u func=%08x wait=%s handle=%08x",id,trace->func.load(),wait?wait:"running",handle);
+    }
+}
 void startStallWatch(){
     static std::once_flag started;
     std::call_once(started,[]{std::thread([]{
@@ -296,6 +346,7 @@ void getVersion() {
 uint32_t loadGuestModule(const std::string& name);
 bool freeGuestModule(uint32_t handle);
 uint32_t guestModuleHandle(const std::string& name);
+std::string guestModuleFilePath(uint32_t handle);
 bool guestModuleExport(uint32_t handle,const std::string& name,uint32_t& va);
 bool isGuestModule(uint32_t handle);
 void moduleHandle() {
@@ -337,7 +388,7 @@ void d3dDispatch(){
     try{result=dispatchGuestD3D9(token,args,&count);}catch(...){
         NFS_RUNTIME_LOG(ANDROID_LOG_ERROR,"NFSC","D3D9 guest caller=%08x stack=%08x token=%08x self=%08x",g_cur_func,g_esp,token,args[0]);throw;}
     if(timed){auto spent=std::chrono::steady_clock::now()-bridgeStart;bridgeTime+=token==0x7e002110u?spent:spent*64;presentTime+=token==0x7e002110u?spent:std::chrono::nanoseconds{};}
-    if(token==0x7e002110u){nfs_widescreen_apply_frame_rate();lastPresentMs=steadyMs();startStallWatch();}
+    if(token==0x7e002110u){nfs_widescreen_apply_frame_rate();lastPresentMs=steadyMs();startStallWatch();sampleOnlineLoading();}
     if(token==0x7e002110u&&result==0){
         static FramePacer pacer;
         auto now=std::chrono::steady_clock::now();
@@ -687,8 +738,8 @@ extern "C" const uint32_t server_recomp_dispatch_count;
 extern "C" const recomp_dispatch_entry_t d3dx_recomp_dispatch_table[],msvcr_recomp_dispatch_table[],msvcp_recomp_dispatch_table[];
 extern "C" const uint32_t d3dx_recomp_dispatch_count,msvcr_recomp_dispatch_count,msvcp_recomp_dispatch_count;
 // NFSCO (scripts/prepare_nfsco.py): palmont.dll, logging.dll and the trampoline pool.
-extern "C" const recomp_dispatch_entry_t palmont_recomp_dispatch_table[],logging_recomp_dispatch_table[],pool_recomp_dispatch_table[];
-extern "C" const uint32_t palmont_recomp_dispatch_count,logging_recomp_dispatch_count,pool_recomp_dispatch_count;
+extern "C" const recomp_dispatch_entry_t palmont_recomp_dispatch_table[],logging_recomp_dispatch_table[],pool_recomp_dispatch_table[],wsfix_recomp_dispatch_table[];
+extern "C" const uint32_t palmont_recomp_dispatch_count,logging_recomp_dispatch_count,pool_recomp_dispatch_count,wsfix_recomp_dispatch_count;
 namespace {
 // Every indirect call and virtual method resolves its target here, so use an
 // open-addressing table (built once, read-only afterwards) instead of a binary
@@ -715,6 +766,7 @@ struct DispatchHash {
         add(palmont_recomp_dispatch_table,palmont_recomp_dispatch_count);
         add(logging_recomp_dispatch_table,logging_recomp_dispatch_count);
         add(pool_recomp_dispatch_table,pool_recomp_dispatch_count);
+        add(wsfix_recomp_dispatch_table,wsfix_recomp_dispatch_count);
 #ifdef NFS_SERVER_DLL
         add(server_recomp_dispatch_table,server_recomp_dispatch_count);
 #endif
@@ -737,8 +789,42 @@ extern "C" recomp_func_t recomp_lookup(uint32_t va) {
     return hash.find(va);
 }
 extern "C" recomp_func_t nfs_abk_lookup(uint32_t va);  // src/runtime/nfs_abk.h
+namespace {
+void testCarbonPow(){
+    State saved;saved.save();
+#ifdef RECOMP_X87_WINDOW
+    const int savedFpSp=g_fp_sp;
+#endif
+    try{
+        struct Sample{double base,exponent,result;};
+        for(auto sample:{Sample{4,.5,2},Sample{2,3,8},Sample{.5,2,.25},Sample{-2,3,-8},Sample{0,0,1}}){
+            g_fp_top=0;fp_push_impl(g_st,&g_fp_top,123.25);fp_push_impl(g_st,&g_fp_top,sample.base);fp_push_impl(g_st,&g_fp_top,sample.exponent);
+            uint32_t stack=g_esp;g_esp-=4;write32(g_esp,RECOMP_RETADDR);nfs_override_lookup(0x00f6406fu)();
+            if(g_esp!=stack||g_fp_top!=2||!std::isfinite(g_st[0])||std::abs(g_st[0]-sample.result)>1e-12||g_st[1]!=123.25)
+                throw GuestStop("Carbon _CIpow result/stack regression");
+        }
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Carbon _CIpow passed powers, roots, fractions, negative base and guest stack preservation");
+    }catch(...){
+#ifdef RECOMP_X87_WINDOW
+        g_fp_sp=savedFpSp;
+#endif
+        saved.load();throw;
+    }
+#ifdef RECOMP_X87_WINDOW
+    g_fp_sp=savedFpSp;
+#endif
+    saved.load();
+}
+}
 extern "C" int nfs_guest_readable(uint32_t va,uint32_t n){return memory&&memory->readable(va,n);}
 extern "C" recomp_func_t recomp_lookup_manual(uint32_t va) {
+    if(va==0x6b6a10||va==0x6bbab0||va==0x6bc5c0||va==0x6bc600||va==0x6b5a00||va==0x6b7c20){
+        static unsigned reported=0;
+        if(reported<128&&access((hostGameRoot+"/nfsc_online_trace").c_str(),F_OK)==0){
+            ++reported;
+            NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","Loader dispatch target=%08x caller=%08x state=%u next=%08x ecx=%08x",va,g_cur_func,read32(0xa99bbc),read32(0xa99b9c),g_ecx);
+        }
+    }
     if(crtSortTestActive&&va==crtSortTestAddress)return crtQsort;
     if(crtSortTestActive&&va==crtCompareTestAddress)return crtCompareTest;
     if(timerTestActive&&va==timerTestAddress)return timerTestCallback;
@@ -813,6 +899,7 @@ std::string connectGuestRuntime(const char* executable) {
         State fresh; fresh.esp=stackBase+stackSize-64; fresh.fs=tib; fresh.load();
         write32(tib,0xffffffff); write32(tib+4,stackBase+stackSize); write32(tib+8,stackBase); write32(tib+0x18,tib);
         testGuestScheduling();
+        testCarbonPow();
         testGuestInput();
         testGuestSoundCaps();
         testGuestTimers();
@@ -878,6 +965,10 @@ void setGuestResolution(unsigned width,unsigned height){
     setD3D9RenderSize(width,height);
 #endif
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Selected render resolution %ux%u",width,height);
+}
+void setGuestGraphicsQuality(unsigned level){
+    std::lock_guard<MachineMutex> lock(machine);if(memory)return;
+    graphicsQuality=level<=3?level:0;
 }
 void setGuestFrameLimit(unsigned framesPerSecond){
     frameLimit=(framesPerSecond>=30&&framesPerSecond<=240)?framesPerSecond:0;
