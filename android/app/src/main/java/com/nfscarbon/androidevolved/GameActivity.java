@@ -154,6 +154,7 @@ public final class GameActivity extends NativeActivity {
     private static native void nativeGamepadDevices(int[] ids);
     private static native void nativeMinimapTop(boolean top);
     private static native void nativeChatPopup(boolean popup);
+    private static native void nativeHideChat();
     private static native void nativeBackBuffers(int count);
     private static native void nativeCpuTextures(boolean enabled);
     private static native void nativeGpuDriver(String hooks, String temp, String directory, String library);
@@ -196,9 +197,10 @@ public final class GameActivity extends NativeActivity {
         dialog.show();input.requestFocus();
         dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
     }
-    // T opens NFSCO's chat window with the input focused; Esc closes it. Closing
-    // first focuses it with T, so Esc reaches the chat even when the window was
-    // only showing a message (the game would take a lone Esc as "back").
+    // T opens NFSCO's chat window with the input focused; Esc closes the input
+    // bar. Closing first focuses it with T, so Esc reaches the chat even when the
+    // window was only showing a message (the game would take a lone Esc as
+    // "back"), then hides the messages, which would stay for display_time.
     private void openNfscoChat() {
         android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
         setTouchKey(0x14, true);
@@ -209,6 +211,7 @@ public final class GameActivity extends NativeActivity {
         openNfscoChat();
         handler.postDelayed(() -> setTouchKey(0x01, true), 250);
         handler.postDelayed(() -> setTouchKey(0x01, false), 320);
+        handler.postDelayed(GameActivity::nativeHideChat, 450);
     }
     private void showNfscoCommands() {
         String[] items = {tr("Chat o comando…"), tr("Ver jugadores conectados"), tr("Buscar carrera…"),

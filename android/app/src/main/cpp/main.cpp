@@ -347,6 +347,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity
 extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeOnlineServer(JNIEnv* env,jclass,jstring host){
     const char* text=env->GetStringUTFChars(host,nullptr);setGuestOnlineServer(text?text:"");env->ReleaseStringUTFChars(host,text);
 }
+extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeHideChat(JNIEnv*,jclass){hideGuestNfscoChat();}
 extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeChatPopup(JNIEnv*,jclass,jboolean popup){setGuestChatPopup(popup==JNI_TRUE);}
 extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeMinimapTop(JNIEnv*,jclass,jboolean top){nfs_widescreen_set_minimap_offset(top==JNI_TRUE?-230.0f:0.0f);}
 static bool compatCpuTextures=false;static unsigned compatBackBuffers=2;

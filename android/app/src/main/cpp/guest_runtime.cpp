@@ -216,6 +216,16 @@ void dumpGuestOnRequest(){
     unlink(request.c_str());
     NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","Guest state saved to %s",path.c_str());
 }
+// NFSCO's chat window (palmont 0x01066F10) stays on screen for
+// messenger.json's display_time after its input bar closes: 0x011CBDEC is the
+// time left, 0x011CBBD8 the current opacity, both lowered each frame. Clearing
+// them hides the window now. Requested from the UI thread, applied at Present
+// while this thread owns the guest.
+std::atomic<bool> nfscoChatHide{false};
+void hideNfscoChatOnRequest(){
+    if(!nfscoChatHide.exchange(false)||!memory||!memory->readable(0x011CBBD8u,0x218))return;
+    const uint32_t zero=0;std::memcpy(memory->address(0x011CBDECu,4),&zero,4);std::memcpy(memory->address(0x011CBBD8u,4),&zero,4);
+}
 void sampleOnlineLoading(){
     static int64_t next=0;auto now=steadyMs();if(now<next)return;next=now+10000;
     if(access((hostGameRoot+"/nfsc_online_trace").c_str(),F_OK)!=0)return;
@@ -408,7 +418,7 @@ void d3dDispatch(){
     try{result=dispatchGuestD3D9(token,args,&count);}catch(...){
         NFS_RUNTIME_LOG(ANDROID_LOG_ERROR,"NFSC","D3D9 guest caller=%08x stack=%08x token=%08x self=%08x",g_cur_func,g_esp,token,args[0]);throw;}
     if(timed){auto spent=std::chrono::steady_clock::now()-bridgeStart;bridgeTime+=token==0x7e002110u?spent:spent*64;presentTime+=token==0x7e002110u?spent:std::chrono::nanoseconds{};}
-    if(token==0x7e002110u){nfs_widescreen_apply_frame_rate();lastPresentMs=steadyMs();startStallWatch();sampleOnlineLoading();dumpGuestOnRequest();}
+    if(token==0x7e002110u){nfs_widescreen_apply_frame_rate();lastPresentMs=steadyMs();startStallWatch();sampleOnlineLoading();dumpGuestOnRequest();hideNfscoChatOnRequest();}
     if(token==0x7e002110u&&result==0){
         static FramePacer pacer;
         auto now=std::chrono::steady_clock::now();
@@ -1034,6 +1044,7 @@ void setGuestNetworkIdentity(uint64_t identity){
     guestNetworkMac[0]=(guestNetworkMac[0]&0xfcu)|2u; // locally administered, unicast
 }
 void setGuestWidescreen(bool enabled){std::lock_guard<MachineMutex> lock(machine);if(!memory)guestWidescreen=enabled;}
+void hideGuestNfscoChat(){nfscoChatHide=true;}
 void setGuestChatPopup(bool popup){std::lock_guard<MachineMutex> lock(machine);if(!memory)guestChatPopup=popup;}
 void setGuestLanguage(const char* language){
     std::lock_guard<MachineMutex> lock(machine);if(memory)return;

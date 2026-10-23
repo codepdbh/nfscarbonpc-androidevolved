@@ -49,5 +49,5 @@ En una sesión de prueba acordada: comprobar búsqueda con varios resultados, cr
 ## Ventana de chat
 
 - Launcher → «Ventana de chat online»: «Aparece con cada mensaje» (`should_display_on_message: true` en `NFSCO/messenger.json`, lo de siempre) o «Solo cuando la abro» (`false`). Se aplica al pulsar JUGAR.
-- Panel NFSCO (botón del globo) → «Abrir chat» pulsa T. «Cerrar chat» pulsa T y después Esc: así el Esc llega al chat aunque la ventana solo estuviera mostrando un mensaje, y el juego no lo toma como «Atrás».
+- Panel NFSCO (botón del globo) → «Abrir chat» pulsa T. «Cerrar chat» pulsa T y después Esc (así el Esc llega al chat y el juego no lo toma como «Atrás») y oculta la ventana al momento: palmont la mantendría `display_time` segundos más. Pone a cero su tiempo restante (0x011CBDEC) y su opacidad (0x011CBBD8) en el siguiente fotograma.
 - Con «Solo cuando la abro», las respuestas de `/search` y demás comandos no aparecen solas: abrir el chat para leerlas.

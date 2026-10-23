@@ -18,7 +18,8 @@ void setGuestPadConnected(bool connected);
 bool guestGamepadInUse();
 // Launcher option; only before the guest boots.
 void setGuestWidescreen(bool enabled);
-void setGuestChatPopup(bool popup);  // NFSCO chat window shows on each message
+void setGuestChatPopup(bool popup);
+void hideGuestNfscoChat();  // clear the NFSCO chat window at the next frame  // NFSCO chat window shows on each message
 void setGuestOnlineServer(const std::string& host);
 void setGuestNetworkIdentity(uint64_t identity);
 /** Touch as mouse: x/y as a fraction of the game view; phase 0 down, 1 move, 2 up (left button). */
