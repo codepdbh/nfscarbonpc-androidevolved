@@ -166,7 +166,7 @@ def read_va_list(path):
     return out
 
 
-def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", extra_exclude=None, patch_sites=None):
+def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", extra_exclude=None, patch_sites=None, variants=None):
     import pefile
     from mw_lifter import Lifter
     info = analyze_pe(exe)
@@ -198,7 +198,11 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", extra_
     # there): those operands are read from memory instead of baked in.
     sites = set(int(v) for v in json.load(open(patch_sites))) if patch_sites else set()
     lifter = Lifter(iat_map=iat, func_names={}, lifted=lifted, precise_carry=True,
-                    hook_sites=set(hooks), patch_sites=sites)
+                    hook_sites=set(hooks), patch_sites=sites,
+                    # --variants FILE: [[start, end, lifted hex, other hex], ...]: ranges a
+                    # plugin rewrites and restores while the game runs (lift32 variants).
+                    variants={int(v[0]): (int(v[1]), bytes.fromhex(v[2]), bytes.fromhex(v[3]))
+                              for v in json.load(open(variants))} if variants else None)
     os.makedirs(outdir, exist_ok=True)
     for fn in os.listdir(outdir):
         if fn.startswith(prefix + "recomp_") and fn.endswith((".c", ".h")):
@@ -305,6 +309,7 @@ if __name__ == "__main__":
         prefix = a[a.index("--prefix") + 1] if "--prefix" in a else ""
         extra = a[a.index("--exclude") + 1] if "--exclude" in a else None
         sites = a[a.index("--patch-sites") + 1] if "--patch-sites" in a else None
-        cmd_lift(a[1], a[2], a[3], split, names, prefix, extra, sites)
+        variants = a[a.index("--variants") + 1] if "--variants" in a else None
+        cmd_lift(a[1], a[2], a[3], split, names, prefix, extra, sites, variants)
     else:
         sys.exit(__doc__)

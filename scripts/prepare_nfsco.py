@@ -242,13 +242,101 @@ def lift_game():
     missing = [hex(va) for va in extra + gaps if va not in starts]
     if missing:
         sys.exit(f"forced roots missing from the catalog: {missing}")
+    captured = patch_sites(CAPTURE, catalog)
+    late_sites, variants = runtime_patches(catalog, set(captured))
+    # A variant may continue where the lifted bytes ended (a hook palmont
+    # removes again: the lifted function is only its jmp): its join must be a
+    # lifted entry too.
+    joins = [v[1] for v in variants if v[1] not in starts]
+    if joins:
+        print(f"[*] {len(joins)} variant joins forced into the NFSC.exe catalog")
+        json.dump(extra + gaps + joins, open(forced, "w"))
+        run("run_lift.py", "catalog", exe, seeds, catalog, "--forced", forced)
+        captured = patch_sites(CAPTURE, catalog)
+        late_sites, variants = runtime_patches(catalog, set(captured))
     sites = WORK / "patch_sites.json"
-    json.dump(patch_sites(CAPTURE, catalog), open(sites, "w"))
+    json.dump(sorted(set(captured) | late_sites), open(sites, "w"))
+    variants_path = WORK / "variants.json"
+    json.dump(variants, open(variants_path, "w"), indent=0)
     out = ROOT / "src/recomp/gen"
     if out.exists():
         import shutil
         shutil.rmtree(out)
-    run("run_lift.py", "lift", exe, catalog, out, "--patch-sites", sites)
+    run("run_lift.py", "lift", exe, catalog, out, "--patch-sites", sites, "--variants", variants_path)
+
+
+def runtime_patches(catalog, sites):
+    """Code palmont rewrites after its OnAttach (online race setup and the like)
+    and restores later, measured from dumps of the running game's .text
+    (work/nfsco/runtime_code/*.bin: {u32 address, u32 size, bytes} records, as
+    the runtime's online trace writes them). Returns (extra patch sites,
+    variants): a change confined to an instruction's trailing operand is read
+    from memory; any other change becomes a lift32 variant that runs the
+    dumped bytes when memory differs from the lifted ones."""
+    import bisect
+    import struct
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_32
+    exe = pefile.PE(str(WORK / "nfsco.analysis.exe"), fast_load=True)
+    base = exe.get_memory_mapped_image()
+    md = Cs(CS_ARCH_X86, CS_MODE_32)
+    blocks = sorted((b[0], b[1]) for f in json.load(open(catalog))["functions"] for b in f["blocks"])
+    starts = [b[0] for b in blocks]
+
+    def block_of(va):
+        i = bisect.bisect_right(starts, va) - 1
+        return blocks[i] if i >= 0 and blocks[i][0] <= va < blocks[i][1] else None
+    dumped = {}
+    for path in sorted((WORK / "runtime_code").glob("*.bin")):
+        data, at = path.read_bytes(), 0
+        while at + 8 <= len(data):
+            va, size = struct.unpack_from("<II", data, at)
+            at += 8
+            for k in range(size):
+                if 0x401000 <= va + k < 0x9C1000 and data[at + k] != base[va + k - 0x400000]:
+                    dumped[va + k] = data[at + k]
+            at += size
+    ranges = []
+    for va in sorted(dumped):
+        if ranges and va <= ranges[-1][1] + 1:
+            ranges[-1][1] = va
+        else:
+            ranges.append([va, va])
+    extra_sites, variants = set(), {}
+    for first, last in ranges:
+        if any(s <= first < s + 4 for s in sites):
+            continue
+        block = block_of(first)
+        if not block:
+            continue          # data kept in .text (the resolution table): read from memory anyway
+        insns = list(md.disasm(base[block[0] - 0x400000:block[1] - 0x400000], block[0]))
+        owner = next((i for i in insns if i.address <= first < i.address + i.size), None)
+        if owner is None:
+            continue
+        end = owner.address + owner.size
+        relative = owner.bytes[0] in (0xE8, 0xE9) or (owner.bytes[0] == 0x0F and 0x80 <= owner.bytes[1] <= 0x8F)
+        if last < end and first >= end - 4 and owner.size >= 5 and not relative:
+            extra_sites.add(end - 4)
+            continue
+        other = bytearray(base[owner.address - 0x400000:owner.address - 0x400000 + 64])
+        for k in range(len(other)):
+            other[k] = dumped.get(owner.address + k, other[k])
+        base_bounds = {i.address + i.size for i in md.disasm(base[owner.address - 0x400000:owner.address - 0x400000 + 64], owner.address)}
+        join = None
+        for i in md.disasm(bytes(other), owner.address):
+            stop = i.address + i.size
+            if stop > last and stop in base_bounds:
+                join = stop
+                break
+            if i.mnemonic in ("ret", "jmp") and stop > last:
+                join = stop
+                break
+        if join is None:
+            sys.exit(f"runtime patch at {first:#x} does not realign with the lifted code")
+        variants[owner.address] = [owner.address, join, base[owner.address - 0x400000:join - 0x400000].hex(),
+                                   bytes(other[:join - owner.address]).hex()]
+    print(f"[*] runtime patches from {len(list((WORK / 'runtime_code').glob('*.bin')))} dumps: "
+          f"{len(extra_sites)} operands read from memory, {len(variants)} code variants")
+    return extra_sites, list(variants.values())
 
 
 def patch_sites(capture, catalog):
