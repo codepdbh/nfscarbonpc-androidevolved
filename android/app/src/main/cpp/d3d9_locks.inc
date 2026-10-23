@@ -1,4 +1,4 @@
-struct ResourceLock {void* native;uint32_t guest,size,pitch,rowBytes,rows,flags;CompressedView compressed{};RECT rectangle{};uint32_t nativePitch{};bool mirrored=false;uint32_t offset=0,depth=1;};
+struct ResourceLock {void* native;uint32_t guest,size,pitch,rowBytes,rows,flags;CompressedView compressed{};RECT rectangle{};uint32_t nativePitch{};bool mirrored=false;uint32_t offset=0,depth=1,extraNative=0;};
 std::map<uint64_t,ResourceLock> resourceLocks;
 uint64_t lockKey(uint32_t object,uint32_t subresource){return (uint64_t(object)<<32)|subresource;}
 uint32_t rowBytes(D3DFORMAT format,uint32_t width){
@@ -58,7 +58,7 @@ void copyLockBack(uint32_t address,uint32_t subresource){
                       uint32_t(data.rectangle.right),uint32_t(data.rectangle.bottom),static_cast<uint8_t*>(data.native),data.nativePitch);
     }
 }
-void releaseLock(uint32_t address,uint32_t subresource){auto lock=resourceLocks.find(lockKey(address,subresource));if(lock!=resourceLocks.end()){if(!lock->second.mirrored)freeGuest(lock->second.guest);resourceLocks.erase(lock);}}
+void releaseLock(uint32_t address,uint32_t subresource){auto lock=resourceLocks.find(lockKey(address,subresource));if(lock!=resourceLocks.end()){if(!lock->second.mirrored)freeGuest(lock->second.guest-lock->second.offset);resourceLocks.erase(lock);}}
 HRESULT lockTexture(uint32_t address,uint32_t level,uint32_t output,const RECT* rect,uint32_t flags){
     if(!output||resourceLocks.count(lockKey(address,level)))return D3DERR_INVALIDCALL;
     auto texture=nativeObject<IDirect3DTexture9>(address);D3DSURFACE_DESC desc{};HRESULT status=texture->GetLevelDesc(level,&desc);if(FAILED(status))return status;
@@ -124,7 +124,18 @@ template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t of
         auto& lock=open->second;uint32_t end=size?offset+size:desc.Size;
         auto& entry=objects.at(address);
         if(lock.mirrored&&entry.mirror){++lock.depth;write(output,entry.mirror+offset);return D3D_OK;}
-        if(offset<lock.offset||end>lock.offset+lock.size)throw std::runtime_error("D3D9 nested buffer lock outside the open range");
+        // Outside the open range (Carbon's race loader at 0x72AF50): the guest
+        // copy spans the whole buffer, so widen in place and keep the pointer
+        // the outer lock handed out. A second native lock marks the wider
+        // range for upload; each one is unlocked at the last Unlock.
+        if(offset<lock.offset||end>lock.offset+lock.size){
+            uint32_t low=std::min(offset,lock.offset),high=std::max(end,lock.offset+lock.size);
+            void* native=nullptr;HRESULT widened=buffer->Lock(low,high-low,&native,0);if(FAILED(widened))return widened;
+            auto base=static_cast<uint8_t*>(native)-low;auto copy=static_cast<uint8_t*>(pointer(lock.guest-lock.offset));
+            if(low<lock.offset)std::memcpy(copy+low,base+low,lock.offset-low);
+            if(high>lock.offset+lock.size)std::memcpy(copy+lock.offset+lock.size,base+lock.offset+lock.size,high-(lock.offset+lock.size));
+            lock.guest-=lock.offset-low;lock.native=base+low;lock.offset=low;lock.size=lock.pitch=lock.rowBytes=high-low;++lock.extraNative;
+        }
         ++lock.depth;write(output,lock.guest+(offset-lock.offset));return D3D_OK;
     }
     // Dynamic write-only buffers (particles, HUD, skids: locked many times a
@@ -143,7 +154,8 @@ template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t of
         resourceLocks.emplace(lockKey(address,0),ResourceLock{native,entry.mirror+offset,size,size,size,1,flags,{},{},0,true,offset});
         write(output,entry.mirror+offset);return D3D_OK;
     }
-    uint32_t temporary=allocateGuest(size);
+    // Sized for the whole buffer so a nested lock can widen the range in place.
+    uint32_t temporary=allocateGuest(desc.Size)+offset;
     if(!(flags&D3DLOCK_DISCARD))std::memcpy(pointer(temporary),native,size);
     resourceLocks.emplace(lockKey(address,0),ResourceLock{native,temporary,size,size,size,1,flags,{},{},0,false,offset});write(output,temporary);return D3D_OK;
 }

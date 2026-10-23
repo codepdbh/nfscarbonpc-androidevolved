@@ -353,7 +353,9 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
         // buffer teardown (0x710D40) unlocks before every Release.
         if(method==12&&!resourceLocks.count(lockKey(args[0],0))){*argumentCount=1;return D3D_OK;}
         if(method==12){auto open=resourceLocks.find(lockKey(args[0],0));if(open->second.depth>1){--open->second.depth;*argumentCount=1;return D3D_OK;}}
-        if(method==12){*argumentCount=1;copyLockBack(args[0],0);HRESULT status=kind==6?static_cast<IDirect3DVertexBuffer9*>(object)->Unlock():static_cast<IDirect3DIndexBuffer9*>(object)->Unlock();releaseLock(args[0],0);return status;}}
+        if(method==12){*argumentCount=1;copyLockBack(args[0],0);uint32_t unlocks=1+resourceLocks.at(lockKey(args[0],0)).extraNative;HRESULT status=D3D_OK;
+            for(uint32_t i=0;i<unlocks;++i)status=kind==6?static_cast<IDirect3DVertexBuffer9*>(object)->Unlock():static_cast<IDirect3DIndexBuffer9*>(object)->Unlock();
+            releaseLock(args[0],0);return status;}}
     if(kind==14){auto texture=static_cast<IDirect3DVolumeTexture9*>(object);
         if(method==18){*argumentCount=3;IDirect3DVolume9* volume=nullptr;HRESULT status=texture->GetVolumeLevel(args[1],&volume);write(args[2],SUCCEEDED(status)?wrap(volume,Kind::Volume):0);return status;}
         if(method==19){*argumentCount=5;return lockVolumeTexture(args[0],args[1],args[2],static_cast<const D3DBOX*>(pointer(args[3])),args[4]);}
