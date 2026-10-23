@@ -529,6 +529,7 @@ public final class LauncherActivity extends Activity {
                 .putExtra("frameCap", Integer.parseInt(GameOptions.get(this, GameOptions.FPS)))
                 .putExtra("widescreen", GameOptions.get(this, GameOptions.WIDESCREEN).equals("on"))
                 .putExtra("minimapTop", GameOptions.get(this, GameOptions.MINIMAP).equals("top"))
+                .putExtra("chatPopup", GameOptions.get(this, GameOptions.CHAT).equals("auto"))
                 .putExtra("backBuffers", Integer.parseInt(GameOptions.get(this, GameOptions.LATENCY)))
                 .putExtra("cpuTextures", GameOptions.get(this, GameOptions.TEXTURES).equals("cpu"))
                 .putExtra("padJoystick", GameOptions.get(this, GameOptions.GAMEPAD).equals("directinput"))

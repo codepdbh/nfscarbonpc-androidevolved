@@ -345,10 +345,21 @@ void writeNfscoChat(){
     };
     adjust("display_time",20.0,true);
     adjust("fade_speed",0.8,false);
+    // Launcher "Ventana de chat online": show the window on every message, or
+    // only when the player opens it (T, or "Abrir chat" in the NFSCO panel).
+    {
+        auto at=text.find("\"should_display_on_message\"");
+        auto colon=at==std::string::npos?at:text.find(':',at);
+        auto begin=colon==std::string::npos?colon:text.find_first_not_of(" \t\r\n",colon+1);
+        if(begin==std::string::npos)throw GuestStop("NFSCO messenger.json has no should_display_on_message");
+        auto end=text.find_first_of(",}\r\n",begin);
+        std::string want=guestChatPopup?"true":"false";
+        if(text.compare(begin,end-begin,want)!=0){text.replace(begin,end-begin,want);changed=true;}
+    }
     if(!changed)return;
     std::ofstream out(path,std::ios::binary|std::ios::trunc);out<<text;
     if(!out)throw GuestStop("Could not save NFSCO chat display settings");
-    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO chat: at least 20 seconds visible, slower fade");
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO chat: at least 20 seconds visible, slower fade, shown on messages: %s",guestChatPopup?"yes":"no");
 }
 // NFSCO reads these before installing its game settings hooks. Keep unrelated
 // preferences (language, movies, audio and online settings) as the player saved them.

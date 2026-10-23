@@ -153,6 +153,7 @@ public final class GameActivity extends NativeActivity {
     private static native void nativeGamepadConnected(boolean connected);
     private static native void nativeGamepadDevices(int[] ids);
     private static native void nativeMinimapTop(boolean top);
+    private static native void nativeChatPopup(boolean popup);
     private static native void nativeBackBuffers(int count);
     private static native void nativeCpuTextures(boolean enabled);
     private static native void nativeGpuDriver(String hooks, String temp, String directory, String library);
@@ -195,9 +196,24 @@ public final class GameActivity extends NativeActivity {
         dialog.show();input.requestFocus();
         dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
     }
+    // T opens NFSCO's chat window with the input focused; Esc closes it. Closing
+    // first focuses it with T, so Esc reaches the chat even when the window was
+    // only showing a message (the game would take a lone Esc as "back").
+    private void openNfscoChat() {
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        setTouchKey(0x14, true);
+        handler.postDelayed(() -> setTouchKey(0x14, false), 60);
+    }
+    private void closeNfscoChat() {
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        openNfscoChat();
+        handler.postDelayed(() -> setTouchKey(0x01, true), 250);
+        handler.postDelayed(() -> setTouchKey(0x01, false), 320);
+    }
     private void showNfscoCommands() {
         String[] items = {tr("Chat o comando…"), tr("Ver jugadores conectados"), tr("Buscar carrera…"),
-                tr("Crear carrera (ID)…"), tr("Unirse a carrera (ID)…"), tr("Iniciar mi carrera"), tr("Salir de la carrera")};
+                tr("Crear carrera (ID)…"), tr("Unirse a carrera (ID)…"), tr("Iniciar mi carrera"), tr("Salir de la carrera"),
+                tr("Abrir chat"), tr("Cerrar chat")};
         new AlertDialog.Builder(this).setTitle(tr("NFSCO online (nfsco.club)")).setItems(items, (dialog, which) -> {
             switch (which) {
                 case 0: askNfsco(items[0], tr("Mensaje o /comando"), value -> value); break;
@@ -206,7 +222,9 @@ public final class GameActivity extends NativeActivity {
                 case 3: askNfsco(items[3], "ID", value -> "/race " + value); break;
                 case 4: askNfsco(items[4], "ID", value -> "/join " + value); break;
                 case 5: sendNfscoLine("/start"); break;
-                default: sendNfscoLine("/leave"); break;
+                case 6: sendNfscoLine("/leave"); break;
+                case 7: openNfscoChat(); break;
+                default: closeNfscoChat(); break;
             }
         }).setNegativeButton(tr("Cerrar"), null).show();
     }
@@ -281,6 +299,7 @@ public final class GameActivity extends NativeActivity {
         String server = launch.getStringExtra("onlineServer");
         nativeOnlineServer(GameOptions.validServer(server) ? server : GameOptions.onlineServer(this));
         nativeMinimapTop(launch.getBooleanExtra("minimapTop", GameOptions.get(this, GameOptions.MINIMAP).equals("top")));
+        nativeChatPopup(launch.getBooleanExtra("chatPopup", GameOptions.get(this, GameOptions.CHAT).equals("auto")));
         nativeBackBuffers(launch.getIntExtra("backBuffers", Integer.parseInt(GameOptions.get(this, GameOptions.LATENCY))));
         nativeCpuTextures(launch.getBooleanExtra("cpuTextures", GameOptions.get(this, GameOptions.TEXTURES).equals("cpu")));
         padJoystick = launch.getBooleanExtra("padJoystick", GameOptions.get(this, GameOptions.GAMEPAD).equals("directinput"));

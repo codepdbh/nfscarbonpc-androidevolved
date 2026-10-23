@@ -45,3 +45,9 @@ Los [códigos oficiales](https://github.com/NFSCO/documentation/wiki/Cheat-Codes
 ## Validación pendiente
 
 En una sesión de prueba acordada: comprobar búsqueda con varios resultados, creación de sala, entrada de un segundo jugador, inicio desde el menú y salida. Probar errores de ID desconocido y sala inexistente. No dar por completada la carrera online por el solo hecho de que NFSCO conecte.
+
+## Ventana de chat
+
+- Launcher → «Ventana de chat online»: «Aparece con cada mensaje» (`should_display_on_message: true` en `NFSCO/messenger.json`, lo de siempre) o «Solo cuando la abro» (`false`). Se aplica al pulsar JUGAR.
+- Panel NFSCO (botón del globo) → «Abrir chat» pulsa T. «Cerrar chat» pulsa T y después Esc: así el Esc llega al chat aunque la ventana solo estuviera mostrando un mensaje, y el juego no lo toma como «Atrás».
+- Con «Solo cuando la abro», las respuestas de `/search` y demás comandos no aparecen solas: abrir el chat para leerlas.

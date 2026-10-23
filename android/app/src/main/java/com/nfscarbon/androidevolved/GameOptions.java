@@ -21,7 +21,8 @@ final class GameOptions {
     }
 
     static final String RESOLUTION = "resolution", FPS = "fps", WIDESCREEN = "widescreen", LATENCY = "latency",
-            TEXTURES = "textures", MINIMAP = "minimap", LANGUAGE = "language", GAMEPAD = "gamepad", QUALITY = "quality";
+            TEXTURES = "textures", MINIMAP = "minimap", LANGUAGE = "language", GAMEPAD = "gamepad", QUALITY = "quality",
+            CHAT = "chat";
 
     static final Option[] ALL = {
             new Option(RESOLUTION, "Resolución interna", "75",
@@ -40,6 +41,9 @@ final class GameOptions {
             new Option(MINIMAP, "Minimapa", "top",
                     new String[] {"top", "bottom"},
                     new String[] {"Arriba a la izquierda", "Abajo a la izquierda (original)"}),
+            new Option(CHAT, "Ventana de chat online", "auto",
+                    new String[] {"auto", "manual"},
+                    new String[] {"Aparece con cada mensaje", "Solo cuando la abro"}),
             new Option(LATENCY, "Sincronía CPU/GPU", "2",
                     new String[] {"2", "1"},
                     new String[] {"Rendimiento · CPU y GPU en paralelo", "Baja latencia · menos FPS"}),

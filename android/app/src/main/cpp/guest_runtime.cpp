@@ -165,6 +165,7 @@ uint32_t lastImport{};
 std::string hostGameRoot;
 std::string guestLanguage="Spanish";
 bool guestWidescreen=true;
+bool guestChatPopup=true;
 std::atomic<bool> stopRequested{false};
 std::atomic<bool> guestPaused{false};
 std::chrono::steady_clock::time_point bootDeadline;
@@ -1033,6 +1034,7 @@ void setGuestNetworkIdentity(uint64_t identity){
     guestNetworkMac[0]=(guestNetworkMac[0]&0xfcu)|2u; // locally administered, unicast
 }
 void setGuestWidescreen(bool enabled){std::lock_guard<MachineMutex> lock(machine);if(!memory)guestWidescreen=enabled;}
+void setGuestChatPopup(bool popup){std::lock_guard<MachineMutex> lock(machine);if(!memory)guestChatPopup=popup;}
 void setGuestLanguage(const char* language){
     std::lock_guard<MachineMutex> lock(machine);if(memory)return;
     // The registry "Language" values NFSC.exe matches (table at 0x00A65588).
