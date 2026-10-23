@@ -4,7 +4,7 @@ Static recompilation of the **PC version** of *Need for Speed: Carbon* (2006, `N
 
 It is **not** an emulator: every function of the original PC executable is translated ahead of time from x86 to C with [pcrecomp](https://github.com/sp00nznet/pcrecomp) (modified) and compiled with the Android NDK.
 
-> **Status: early development, not playable yet.** The game code, its runtime DLLs and the sound-bank routines are translated; the Android app is being brought up.
+> **Status: playable (v0.1.0).** Career, quick races and NFSCO online run on Android (tested on a Galaxy S25 and a Redmi Note 8). APKs: [Releases](../../releases).
 
 No game files are included. You need your own copy of the PC game. Generated C code, analysis copies and logs are produced locally and never committed.
 
@@ -20,7 +20,7 @@ No game files are included. You need your own copy of the PC game. Generated C c
 
 ### Online: NFSCO
 
-The plan includes the community online mod **NFSCO** ([nfsco.club](https://nfsco.club)). Its authors allowed translating their binaries for this Android port; their source code is not shared and is not needed. `tools/nfsco_capture.c` records, on Windows, the patches NFSCO's `palmont.dll` applies to the game at fixed guest addresses (palmont at `0x01060000`, its trampolines at `0x01200000`); see [docs/BINARY_REPORT.md](docs/BINARY_REPORT.md).
+The port includes the community online mod **NFSCO** ([nfsco.club](https://nfsco.club)). Its authors allowed translating their binaries for this Android port; their source code is not shared and is not needed. `tools/nfsco_capture.c` records, on Windows, the patches NFSCO's `palmont.dll` applies to the game at fixed guest addresses (palmont at `0x01060000`, its trampolines at `0x01200000`); see [docs/BINARY_REPORT.md](docs/BINARY_REPORT.md).
 
 ### Game language
 
@@ -53,10 +53,10 @@ Code in this repository: see each file. pcrecomp by sp00nznet. NFSCO by its auth
 
 Recompilación estática de la **versión de PC** de *Need for Speed: Carbon* (2006, `NFSC.exe` 1.4, x86) a Android ARM64 y ARMv7. Cuarto juego de la familia *NFS Android Evolved*, después de Underground 2, Underground 1 y Most Wanted, de cuyo runtime parte.
 
-> **Estado: desarrollo inicial, todavía no jugable.** Ya están traducidos el código del juego, sus DLL de runtime y las rutinas de los bancos de sonido; la app de Android está en arranque.
+> **Estado: jugable (v0.1.0).** Modo historia, carreras rápidas y el online de NFSCO funcionan en Android (probado en un Galaxy S25 y un Redmi Note 8). APK en [Releases](../../releases).
 
 No se incluyen archivos del juego: necesitas tu propia copia de PC. El código C generado, las copias de análisis y los registros se producen localmente y nunca se suben.
 
-**Online:** se incluirá el mod comunitario **NFSCO** ([nfsco.club](https://nfsco.club)), cuyos autores han autorizado traducir sus binarios para este port.
+**Online:** incluye el mod comunitario **NFSCO** ([nfsco.club](https://nfsco.club)), cuyos autores han autorizado traducir sus binarios para este port.
 
 **Idioma:** el launcher escribe el valor de registro `Language` que lee Carbon. Ofrece Español (España), Español (México), Inglés y los demás idiomas presentes en tu copia.
