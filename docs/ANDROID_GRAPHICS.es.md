@@ -29,4 +29,8 @@ NFSCO centra su ventana con `GetClientRect(GetDesktopWindow())` y la mueve con `
 
 Menús a 30 FPS. Carrera rápida con 8 coches en ultra baja: unos 10 FPS. El hilo principal está limitado por CPU: código del juego, efectos D3DX y puente D3D9; el hilo de audio de EA (RWAudioCore) ocupa otro 20–25 % de CPU y comparte el turno del intérprete con el juego. Las llamadas indirectas del código traducido pasan por una caché directa antes de la tabla hash.
 
-Pendiente: las luces de la ciudad (streak flares, `STREAKFLARES_I`, renderer en 0xB4CF28) se ven como líneas largas. Hipótesis sin confirmar: la estela se calcula con el movimiento entre dos fotogramas y con pocos FPS ese salto es mayor; falta compararlo con un dispositivo rápido.
+Luces de coches y semáforos: se veían como líneas largas porque `fsincos` del traductor (pcrecomp `lift32.py`) dejaba el seno en ST(0) y el coseno debajo, al revés que x87. Las rotaciones de D3DX (`D3DXMatrixRotationX/Y/Z` y otras) giraban 90° menos el ángulo. Corregido en el traductor; D3DX se regenera con `scripts/prepare_modules.py d3dx9_30.dll`.
+
+## Cursor táctil
+
+Carbon lee el cursor con `GetCursorPos` y lo escala con `GetWindowRect`/`GetClientRect` (0x731580) a unidades de 640×480, pero con WidescreenFix sus menús lo colocan a 3/4 de esa altura: la parte inferior de los menús no se alcanzaba. `GetCursorPos` entrega la altura multiplicada por 4/3; medido en el Redmi Note 8 (780×360), la flecha queda bajo el dedo en el menú principal y en el de pausa.

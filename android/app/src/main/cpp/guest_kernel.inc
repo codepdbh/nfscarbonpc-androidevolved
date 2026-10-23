@@ -464,6 +464,12 @@ void windowRect(){
 // Screen position of the touch pointer (the game maps it through GetWindowRect/GetClientRect).
 void cursorPosition(){
     auto point=pointerInWindow();int32_t screen[2]={point.first,point.second};
+    // Carbon (0x731580) scales GetCursorPos by 640/client width and 480/client
+    // height, but its menus (with WidescreenFix) place the cursor at 3/4 of the
+    // height that gives: measured on the Redmi Note 8 in the main and pause
+    // menus, a touch at 85% of the screen drew the arrow and hit-tested at 65%,
+    // and the bottom quarter could not be reached. x already matches.
+    screen[1]=point.second*4/3;
     if(auto window=windows.find(activeWindow);window!=windows.end()){screen[0]+=window->second.x;screen[1]+=window->second.y;}
     std::memcpy(ptr(arg(0),8),screen,8);ret(1,1);
 }
