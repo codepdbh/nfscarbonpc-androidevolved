@@ -23,6 +23,7 @@ void createWindowEx(){
     int32_t x=arg(4),y=arg(5),width=arg(6),height=arg(7);
     if(static_cast<uint32_t>(x)==0x80000000)x=0;if(static_cast<uint32_t>(y)==0x80000000)y=0;
     if(static_cast<uint32_t>(width)==0x80000000)width=640;if(static_cast<uint32_t>(height)==0x80000000)height=480;
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","CreateWindowEx %d,%d %dx%d style %08x",x,y,width,height,arg(3));
     uint32_t handle=nextWindow++,structure=allocate(48),parameters[12]={arg(11),arg(10),arg(9),arg(8),static_cast<uint32_t>(height),static_cast<uint32_t>(width),static_cast<uint32_t>(y),static_cast<uint32_t>(x),arg(3),arg(2),arg(1),arg(0)};
     windows.emplace(handle,GuestWindow{cls->procedure,arg(10),arg(3),arg(0),arg(8),0,arg(9),cls->extra,x,y,width,height,(arg(3)&0x10000000)!=0,{}});
     std::memcpy(ptr(structure,48),parameters,48);

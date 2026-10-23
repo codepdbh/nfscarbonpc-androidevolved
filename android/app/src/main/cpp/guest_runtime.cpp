@@ -196,6 +196,25 @@ std::atomic<int64_t> lastPresentMs{0};
 int64_t steadyMs(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
 // Opt-in snapshots for loading screens that keep presenting frames. Unlike
 // attaching a debugger, this does not stop Android's UI/input threads.
+// On request (create nfsc_dump in the game folder) save the game's data,
+// NFSCO and WidescreenFix images, to compare guest state across a change.
+void dumpGuestOnRequest(){
+    static int64_t next=0;auto now=steadyMs();if(now<next)return;next=now+1000;
+    auto request=hostGameRoot+"/nfsc_dump";
+    if(access(request.c_str(),F_OK)!=0||!memory)return;
+    static unsigned count=0;auto path=hostGameRoot+"/nfsc_dump_"+std::to_string(count++)+".bin";
+    std::ofstream out(path,std::ios::binary|std::ios::trunc);
+    auto region=[&](uint32_t va,uint32_t bytes){
+        for(uint32_t page=va;page<va+bytes;page+=0x1000){
+            if(!memory->readable(page,0x1000))continue;uint32_t size=0x1000;
+            out.write(reinterpret_cast<const char*>(&page),4);out.write(reinterpret_cast<const char*>(&size),4);
+            out.write(static_cast<const char*>(memory->address(page,size)),size);
+        }
+    };
+    region(0x9c0000,0x26c000);region(0x1060000,0x17d000);region(0x1300000,0x40000);
+    unlink(request.c_str());
+    NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","Guest state saved to %s",path.c_str());
+}
 void sampleOnlineLoading(){
     static int64_t next=0;auto now=steadyMs();if(now<next)return;next=now+10000;
     if(access((hostGameRoot+"/nfsc_online_trace").c_str(),F_OK)!=0)return;
@@ -388,7 +407,7 @@ void d3dDispatch(){
     try{result=dispatchGuestD3D9(token,args,&count);}catch(...){
         NFS_RUNTIME_LOG(ANDROID_LOG_ERROR,"NFSC","D3D9 guest caller=%08x stack=%08x token=%08x self=%08x",g_cur_func,g_esp,token,args[0]);throw;}
     if(timed){auto spent=std::chrono::steady_clock::now()-bridgeStart;bridgeTime+=token==0x7e002110u?spent:spent*64;presentTime+=token==0x7e002110u?spent:std::chrono::nanoseconds{};}
-    if(token==0x7e002110u){nfs_widescreen_apply_frame_rate();lastPresentMs=steadyMs();startStallWatch();sampleOnlineLoading();}
+    if(token==0x7e002110u){nfs_widescreen_apply_frame_rate();lastPresentMs=steadyMs();startStallWatch();sampleOnlineLoading();dumpGuestOnRequest();}
     if(token==0x7e002110u&&result==0){
         static FramePacer pacer;
         auto now=std::chrono::steady_clock::now();
@@ -817,8 +836,19 @@ void testCarbonPow(){
 }
 }
 extern "C" int nfs_guest_readable(uint32_t va,uint32_t n){return memory&&memory->readable(va,n);}
-extern "C" recomp_func_t recomp_lookup_manual(uint32_t va) {
-    if(va==0x6b6a10||va==0x6bbab0||va==0x6bc5c0||va==0x6bc600||va==0x6b5a00||va==0x6b7c20){
+namespace {
+// Every RECOMP_ICALL/ITAIL resolves through recomp_lookup_manual first: vtable
+// calls of the game, D3DX and the CRT were ~12% of the Redmi Note 8 main
+// thread in hash probes. Code outside the heaps never moves, so its function
+// is remembered (overrides first, as before). Heap code (sound banks), imports
+// and COM stubs stay uncached: recomp_lookup_import records which method was
+// called. Guest threads hold the machine while resolving.
+struct LookupEntry{uint32_t va;recomp_func_t fn;};
+LookupEntry lookupCache[8192];
+inline LookupEntry& lookupSlot(uint32_t va){return lookupCache[((va>>2)^(va>>15))&8191u];}
+bool loaderTraceTarget(uint32_t va){return va==0x6b6a10||va==0x6bbab0||va==0x6bc5c0||va==0x6bc600||va==0x6b5a00||va==0x6b7c20;}
+__attribute__((noinline)) recomp_func_t lookupManualSlow(uint32_t va){
+    if(loaderTraceTarget(va)){
         static unsigned reported=0;
         if(reported<128&&access((hostGameRoot+"/nfsc_online_trace").c_str(),F_OK)==0){
             ++reported;
@@ -829,9 +859,21 @@ extern "C" recomp_func_t recomp_lookup_manual(uint32_t va) {
     if(crtSortTestActive&&va==crtCompareTestAddress)return crtCompareTest;
     if(timerTestActive&&va==timerTestAddress)return timerTestCallback;
     // Routines of EA's sound banks run from the heap: their lifted copies (nfs_abk.h).
-    if((va>=GuestHeaps::firstArena&&va<GuestHeaps::firstArenaEnd)||(va>=GuestHeaps::secondArena&&va-GuestHeaps::secondArena<GuestHeaps::secondArenaSize))
+    if((va>=GuestHeaps::firstArena&&va<GuestHeaps::firstArenaEnd)||(va>=GuestHeaps::secondArena&&va-GuestHeaps::secondArena<GuestHeaps::secondArenaSize)){
         if(recomp_func_t fn=nfs_abk_lookup(va))return fn;
-    return nfs_override_lookup(va);
+        return nfs_override_lookup(va);
+    }
+    if(va-0x7c000000u<0x04000000u)return nullptr;
+    recomp_func_t fn=nfs_override_lookup(va);
+    if(!fn)fn=recomp_lookup(va);
+    if(fn&&!loaderTraceTarget(va)&&!crtSortTestActive&&!timerTestActive){auto& entry=lookupSlot(va);entry.va=va;entry.fn=fn;}
+    return fn;
+}
+}
+extern "C" recomp_func_t recomp_lookup_manual(uint32_t va) {
+    auto& entry=lookupSlot(va);
+    if(__builtin_expect(entry.va==va&&va,1)&&!crtSortTestActive&&!timerTestActive)return entry.fn;
+    return lookupManualSlow(va);
 }
 extern "C" recomp_func_t recomp_lookup_import(uint32_t va) {
     checkGuestProgress();
@@ -968,7 +1010,7 @@ void setGuestResolution(unsigned width,unsigned height){
 }
 void setGuestGraphicsQuality(unsigned level){
     std::lock_guard<MachineMutex> lock(machine);if(memory)return;
-    graphicsQuality=level<=3?level:0;
+    graphicsQuality=level<=4?level:0;
 }
 void setGuestFrameLimit(unsigned framesPerSecond){
     frameLimit=(framesPerSecond>=30&&framesPerSecond<=240)?framesPerSecond:0;

@@ -470,7 +470,10 @@ void cursorPosition(){
 // Speed.exe clamps its mouse cursor (0x4131A0) to its window's client rect, in
 // render pixels: report the back buffer it created (0x71A96C) for that window,
 // since the Android surface, not the window, is what gets presented.
-void clientRect(){auto window=windows.find(arg(0));if(window==windows.end()){lastError=1400;ret(0,2);return;}int32_t rect[4]={0,0,window->second.width,window->second.height};
+void clientRect(){
+    // The desktop's client area is the virtual screen (NFSCO centres its window with it).
+    if(arg(0)==desktopWindow){int32_t rect[4]={0,0,int32_t(displayModeWidth()),int32_t(displayModeHeight())};std::memcpy(ptr(arg(1),16),rect,16);ret(1,2);return;}
+    auto window=windows.find(arg(0));if(window==windows.end()){lastError=1400;ret(0,2);return;}int32_t rect[4]={0,0,window->second.width,window->second.height};
     if(game::presentParams&&arg(0)==(game::windowHandle?read32(game::windowHandle):0u)){int32_t w=int32_t(read32(game::presentParams)),h=int32_t(read32(game::presentParams+4));if(w>0&&h>0&&w<=8192&&h<=8192){rect[2]=w;rect[3]=h;}}std::memcpy(ptr(arg(1),16),rect,16);ret(1,2);}
 void loadIcon(){lastError=1813;ret(0,2);} // PE icon resources are not materialized as Android objects.
 void loadCursor(){

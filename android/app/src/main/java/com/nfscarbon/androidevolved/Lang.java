@@ -71,6 +71,7 @@ final class Lang {
 
     static {
         add("Calidad gráfica", "Graphics quality", "Qualidade gráfica");
+        add("Ultra baja · gama baja, máx. 360p", "Ultra low · low-end devices, max 360p", "Ultra baixa · aparelhos simples, máx. 360p");
         add("Baja · sin sombras ni reflejos", "Low · no shadows or reflections", "Baixa · sem sombras nem reflexos");
         add("Media · efectos reducidos", "Medium · reduced effects", "Média · efeitos reduzidos");
         add("Alta · más detalle", "High · more detail", "Alta · mais detalhes");

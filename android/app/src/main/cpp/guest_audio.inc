@@ -124,6 +124,7 @@ void soundDispatch(){
             auto voice=std::make_shared<PcmVoice>();
             if(!(flags&1)&&(!soundFormat(format,*voice)||!bytes||bytes>16*1024*1024||bytes%voice->block())){ret(soundBadFormat,4);return;}
             if(flags&0x10){ret(0x8878001e,4);return;} // 3D spatialization is not implemented.
+            if(!(flags&1))NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","DirectSound buffer %u Hz %u ch %u bit, %u bytes, flags %08x",voice->rate,voice->channels,voice->bits,bytes,flags);
             if(!(flags&1)){voice->samples.resize(bytes,voice->bits==8?128:0);if(!soundMixer.add(voice)){ret(0x8878000a,4);return;}}
             uint32_t buffer=createSoundObject(2,flags);auto& created=soundObjects.at(buffer);created.voice=voice;
             if(!(flags&1)){created.guestSamples=allocate(bytes);std::memcpy(ptr(created.guestSamples,bytes),voice->samples.data(),bytes);}

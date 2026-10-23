@@ -369,7 +369,7 @@ void writeNfscoGraphics(){
         if(colon==std::string::npos||end==std::string::npos)throw GuestStop("Invalid NFSCO graphics setting");
         text.replace(colon+1,end-colon-1," "+value);
     };
-    const bool low=graphicsQuality==1,high=graphicsQuality==3;
+    const bool low=graphicsQuality==1||graphicsQuality==4,high=graphicsQuality==3;
     auto number=[&](const char* key,unsigned value){set(key,std::to_string(value));};
     auto boolean=[&](const char* key,bool value){set(key,value?"true":"false");};
     number("performance_level",5); // Custom: apply the individual values below.
@@ -386,10 +386,11 @@ void writeNfscoGraphics(){
     boolean("is_post_processing_enabled",high);
     boolean("is_visual_treatment_enabled",!low);
     boolean("is_vertical_synchronization_enabled",false);
+    boolean("are_movies_enabled",true);  // FMVs only play between menus and races
     auto temporary=path;temporary+=".tmp";
     {std::ofstream out(temporary,std::ios::binary|std::ios::trunc);out<<text;if(!out)throw GuestStop("Could not save NFSCO graphics settings");}
     std::filesystem::rename(temporary,path);
-    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO graphics profile %u (1 low, 2 medium, 3 high)",graphicsQuality);
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO graphics profile %u (4 ultra low, 1 low, 2 medium, 3 high)",graphicsQuality);
 }
 void startNfsco(){
     memory->commit(nfscoPoolBase,nfscoPoolSize);

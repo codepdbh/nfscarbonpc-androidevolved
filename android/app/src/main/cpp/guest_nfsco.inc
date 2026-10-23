@@ -333,7 +333,20 @@ void userIdentityPoint(){ret(1,2);}   // ClientToScreen / ScreenToClient
 void userZero0(){ret(0,0);}           // GetCapture, GetMessageExtraInfo
 void userIsWindowUnicode(){ret(0,1);}
 void userTrackMouseEvent(){ret(1,1);}
-void userMoveWindow(){ret(1,6);}
+// NFSCO centres its window on the monitor after every device reset; the
+// size and WM_SIZE must follow, as GetClientRect/GetWindowRect report them.
+void userMoveWindow(){
+    uint32_t handle=arg(0);auto window=windows.find(handle);if(window==windows.end()){lastError=1400;ret(0,6);return;}
+    int32_t x=arg(1),y=arg(2),width=arg(3),height=arg(4);
+    static unsigned logged=0;
+    if(logged++<16)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","MoveWindow %08x to %d,%d %dx%d (was %d,%d %dx%d)",handle,x,y,width,height,
+        window->second.x,window->second.y,window->second.width,window->second.height);
+    auto& value=window->second;bool moved=value.x!=x||value.y!=y,sized=value.width!=width||value.height!=height;
+    value.x=x;value.y=y;value.width=width;value.height=height;
+    if(moved)windowMessage(handle,3,0,(uint32_t(y)<<16)|(uint32_t(x)&0xffff));
+    if(sized)windowMessage(handle,5,0,(uint32_t(height)<<16)|(uint32_t(width)&0xffff));
+    ret(1,6);
+}
 void userOpenClipboard(){lastError=5;ret(0,1);}
 void userClipboardNone0(){ret(0,0);}  // CloseClipboard, EmptyClipboard
 void userClipboardNone1(){ret(0,1);}  // GetClipboardData

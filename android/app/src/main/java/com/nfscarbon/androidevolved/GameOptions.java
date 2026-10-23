@@ -29,8 +29,8 @@ final class GameOptions {
                     new String[] {"Nativa · máxima calidad", "75% · equilibrada", "50% · máximo rendimiento",
                             "720p · adaptada a la pantalla", "480p · rendimiento", "360p · máximo rendimiento"}),
             new Option(QUALITY, "Calidad gráfica", "0",
-                    new String[] {"1", "2", "3", "0"},
-                    new String[] {"Baja · sin sombras ni reflejos", "Media · efectos reducidos", "Alta · más detalle", "Conservar ajustes del juego"}),
+                    new String[] {"4", "1", "2", "3", "0"},
+                    new String[] {"Ultra baja · gama baja, máx. 360p", "Baja · sin sombras ni reflejos", "Media · efectos reducidos", "Alta · más detalle", "Conservar ajustes del juego"}),
             new Option(FPS, "Límite de FPS", "120",
                     new String[] {"30", "60", "90", "120", "0"},
                     new String[] {"30 FPS · ahorra batería", "60 FPS", "90 FPS", "120 FPS", "Sin límite"}),
@@ -95,6 +95,13 @@ final class GameOptions {
     /** Render size for the selected resolution on a display of width × height (landscape). */
     static int[] renderSize(Context context, int width, int height) {
         String value = get(context, RESOLUTION);
+        int[] size = renderSize(value, width, height);
+        // Ultra low: low-end GPUs (Adreno 6xx) render at most 360 lines.
+        if (get(context, QUALITY).equals("4") && size[1] > 360) size = renderSize("360", width, height);
+        return size;
+    }
+
+    private static int[] renderSize(String value, int width, int height) {
         if (value.equals("720") || value.equals("480") || value.equals("360")) {
             int renderHeight = Integer.parseInt(value);
             return new int[] {Math.round((width * (float) renderHeight / height) / 2f) * 2, renderHeight};
