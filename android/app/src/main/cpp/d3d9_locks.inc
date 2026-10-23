@@ -59,8 +59,14 @@ void copyLockBack(uint32_t address,uint32_t subresource){
     }
 }
 void releaseLock(uint32_t address,uint32_t subresource){auto lock=resourceLocks.find(lockKey(address,subresource));if(lock!=resourceLocks.end()){if(!lock->second.mirrored)freeGuest(lock->second.guest-lock->second.offset);resourceLocks.erase(lock);}}
+HRESULT refusedLock(uint32_t address,uint32_t subresource){
+    static unsigned logged=0;
+    if(logged++<20)NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","D3D9 lock refused: object %08x subresource %u already locked",address,subresource);
+    return D3DERR_INVALIDCALL;
+}
 HRESULT lockTexture(uint32_t address,uint32_t level,uint32_t output,const RECT* rect,uint32_t flags){
-    if(!output||resourceLocks.count(lockKey(address,level)))return D3DERR_INVALIDCALL;
+    if(!output)return D3DERR_INVALIDCALL;
+    if(resourceLocks.count(lockKey(address,level)))return refusedLock(address,level);
     auto texture=nativeObject<IDirect3DTexture9>(address);D3DSURFACE_DESC desc{};HRESULT status=texture->GetLevelDesc(level,&desc);if(FAILED(status))return status;
     D3DLOCKED_RECT lock{};status=texture->LockRect(level,&lock,rect,flags);if(FAILED(status))return status;
     return lockPixels(address,level,desc,lock,rect,flags,output);
@@ -158,4 +164,14 @@ template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t of
     uint32_t temporary=allocateGuest(desc.Size)+offset;
     if(!(flags&D3DLOCK_DISCARD))std::memcpy(pointer(temporary),native,size);
     resourceLocks.emplace(lockKey(address,0),ResourceLock{native,temporary,size,size,size,1,flags,{},{},0,false,offset});write(output,temporary);return D3D_OK;
+}
+// A resource released while locked leaves its locks behind; the next object
+// wrapped at the same guest address would find them and every LockRect failed
+// (Carbon then copied a level through a stale pointer: ICALL to garbage at
+// 0x725C80 while loading a race).
+void dropGuestLocks(uint32_t address){
+    for(auto it=resourceLocks.lower_bound(lockKey(address,0));it!=resourceLocks.end()&&uint32_t(it->first>>32)==address;){
+        if(!it->second.mirrored)freeGuest(it->second.guest-it->second.offset);it=resourceLocks.erase(it);}
+    for(auto it=volumeLocks.lower_bound(lockKey(address,0));it!=volumeLocks.end()&&uint32_t(it->first>>32)==address;){
+        freeGuest(it->second.guest);it=volumeLocks.erase(it);}
 }

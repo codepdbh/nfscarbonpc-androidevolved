@@ -78,8 +78,10 @@ template<class T>T* nativeObject(uint32_t address){
     auto native=dynamic_cast<T*>(found->second.native);if(!native)throw std::runtime_error("D3D9 resource interface mismatch");return native;
 }
 uint32_t wrapTexture(IDirect3DBaseTexture9* texture){if(!texture)return 0;switch(texture->GetType()){case D3DRTYPE_TEXTURE:return wrap(texture,Kind::Texture);case D3DRTYPE_CUBETEXTURE:return wrap(texture,Kind::Cube);case D3DRTYPE_VOLUMETEXTURE:return wrap(texture,Kind::VolumeTexture);default:throw std::runtime_error("Unknown D3D9 base texture type");}}
+void dropGuestLocks(uint32_t address);  // d3d9_locks.inc
 void retireGuestObject(uint32_t address){
     if(address==hotDeviceAddress){hotDeviceAddress=0;hotDeviceNative=nullptr;}
+    dropGuestLocks(address);
     auto found=objects.find(address);if(found==objects.end())return;
     uint32_t table;std::memcpy(&table,pointer(address),4);
     if(found->second.mirror)freeGuest(found->second.mirror);
@@ -153,7 +155,7 @@ void configureD3D9Bridge(void* base,uint32_t (*allocator)(uint32_t),void (*deall
 }
 void shutdownD3D9Bridge(){
     hotDeviceAddress=0;hotDeviceNative=nullptr;
-    for(auto& lock:resourceLocks)if(!lock.second.mirrored)freeGuest(lock.second.guest);resourceLocks.clear();
+    for(auto& lock:resourceLocks)if(!lock.second.mirrored)freeGuest(lock.second.guest-lock.second.offset);resourceLocks.clear();
     for(uint32_t kind=15;kind;--kind)for(auto it=objects.begin();it!=objects.end();){
         if(static_cast<uint32_t>(it->second.kind)!=kind){++it;continue;}
         auto object=it->second;for(uint32_t n=0;n<object.references;++n)object.native->Release();
