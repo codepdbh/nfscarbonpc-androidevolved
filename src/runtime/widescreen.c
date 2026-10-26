@@ -16,6 +16,7 @@ void nfs_widescreen_set_display_aspect(float aspect) { display_aspect = aspect >
 void nfs_widescreen_set_resolution(unsigned width, unsigned height) { render_width = width; render_height = height; }
 int nfs_widescreen_hud_entries(void) { return 0; }
 void nfs_widescreen_set_minimap_offset(float dy) { minimap_offset = dy; }
+float nfs_widescreen_minimap_offset(void) { return minimap_offset; }
 void nfs_widescreen_set_frame_rate(unsigned fps) { (void)fps; }
 void nfs_widescreen_apply_frame_rate(void) {}
 void nfs_frontend_cursor_units(int on) { (void)on; }

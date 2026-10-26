@@ -19,6 +19,8 @@
 #endif
 #include <array>
 #include <cmath>
+#include <functional>
+#include <unordered_map>
 #include <vector>
 #include <map>
 #include <memory>
@@ -199,6 +201,55 @@ int64_t steadyMs(){return std::chrono::duration_cast<std::chrono::milliseconds>(
 // attaching a debugger, this does not stop Android's UI/input threads.
 // On request (create nfsc_dump in the game folder) save the game's data,
 // NFSCO and WidescreenFix images, to compare guest state across a change.
+// Minimap at the top-left (launcher option, offset < 0). The FEngHud (global
+// 0x00AA2530) keeps the Minimap at +0x334 (vtable 0x9D693C, built at
+// 0x5E8254). Every frame the Minimap places its TRACK_MAP group (+0x30, tiles
+// +0x34..+0x40) and the radar icons around its centre (+0xB4 X, +0xB8 Y, HUD
+// units centred on 0,0 over 640x480: 131 is the bottom-left corner), so moving
+// the centre moves those. The frame, disc, compass, side bar and player arrow
+// are other HUD objects at its height on the left side, matched by that whole
+// band: the HUD slides in from the left edge as it opens (the centre X goes
+// -204 to -324, the side bar starts off screen) and its scripts keep
+// rewriting some of them (each frame, before drawing), so the band is checked
+// at every BeginScene and whatever holds a game-written Y is moved again. FE
+// objects: next +4, prev +8, hash +0x10, type +0x18 (5 group: children +0x64),
+// data +0x2c (X +0x1c, Y +0x20; a group adds its position to its children).
+struct MinimapPlacement{uint32_t minimap=0;float originalY=0,writtenY=0;std::unordered_map<uint32_t,float> written;bool logged=false;} minimapPlacement;
+float readFloat(uint32_t va){uint32_t v=read32(va);float f;std::memcpy(&f,&v,4);return f;}
+void writeFloat(uint32_t va,float f){std::memcpy(memory->address(va,4),&f,4);}
+void placeMinimap(){
+    auto& state=minimapPlacement;
+    if(nfs_widescreen_minimap_offset()>=0.f||!memory||!memory->readable(0x00AA2530u,4)){state.minimap=0;return;}
+    uint32_t hud=read32(0x00AA2530u),minimap=memory->readable(hud+0x334u,4)?read32(hud+0x334u):0;
+    if(!minimap||!memory->readable(minimap,0xe0)||read32(minimap)!=0x009D693Cu){state.minimap=0;return;}
+    float y=readFloat(minimap+0xb8u);
+    if(minimap!=state.minimap){state.minimap=minimap;state.originalY=y;state.written.clear();}
+    else if(y!=state.writtenY)state.originalY=y;
+    float cy=state.originalY,dy=-2.f*cy;
+    state.writtenY=cy+dy;writeFloat(minimap+0xb8u,state.writtenY);
+    auto owned=[&](uint32_t fe){for(uint32_t k=0x30u;k<=0x40u;k+=4)if(read32(minimap+k)==fe)return true;return false;};
+    unsigned moved=0,visited=0;
+    // ox/oy: the parent's position as the game placed it (before any move here)
+    std::function<void(uint32_t,float,float,unsigned)> walk=[&](uint32_t fe,float ox,float oy,unsigned depth){
+        for(;fe&&visited<4096&&memory->readable(fe,0x70);fe=read32(fe+4)){
+            ++visited;uint32_t data=read32(fe+0x2cu);
+            if(owned(fe)||read32(fe+0x10u)==0xffffffffu||!memory->readable(data,0x24))continue;
+            float local=readFloat(data+0x20u);auto mine=state.written.find(data);
+            if(mine!=state.written.end()&&mine->second==local)local-=dy;
+            float x=ox+readFloat(data+0x1cu),fy=oy+local;
+            if(x<-150.f&&std::fabs(fy-cy)<60.f){
+                if(mine==state.written.end()||mine->second!=readFloat(data+0x20u)){writeFloat(data+0x20u,local+dy);state.written[data]=local+dy;}
+                ++moved;continue;
+            }
+            if(read32(fe+0x18u)==5u&&depth<8)walk(read32(fe+0x64u),x,fy,depth+1);
+        }
+    };
+    uint32_t first=read32(minimap+0x30u);
+    for(unsigned guard=0;first&&guard<512&&memory->readable(read32(first+8u),0x70);++guard)first=read32(first+8u);
+    if(first&&memory->readable(first,0x70))walk(first,0,0,0);
+    if(!state.logged)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Minimap at %.0f moved by %.0f: %u of %u HUD objects moved with it",cy,dy,moved,visited);
+    state.logged=true;
+}
 void dumpGuestOnRequest(){
     static int64_t next=0;auto now=steadyMs();if(now<next)return;next=now+1000;
     auto request=hostGameRoot+"/nfsc_dump";
@@ -413,6 +464,9 @@ void d3dDispatch(){
     static uint64_t bridgeCalls=0;static std::chrono::nanoseconds bridgeTime{},presentTime{};
     // Time one call in 64 (and every Present) so the statistic does not cost
     // two clock reads on each of the ~40k calls in a race frame.
+    // BeginScene (device method 41): after the game's HUD update and scripts,
+    // before the HUD draws, so the moved minimap objects are what it draws.
+    if(token==0x7e002290u)placeMinimap();
     bool timed=(++bridgeCalls&63u)==0||token==0x7e002110u;
     std::chrono::steady_clock::time_point bridgeStart;if(timed)bridgeStart=std::chrono::steady_clock::now();uint32_t result;
     try{result=dispatchGuestD3D9(token,args,&count);}catch(...){
