@@ -464,12 +464,19 @@ void windowRect(){
 // Screen position of the touch pointer (the game maps it through GetWindowRect/GetClientRect).
 void cursorPosition(){
     auto point=pointerInWindow();int32_t screen[2]={point.first,point.second};
-    // Carbon (0x731580) scales GetCursorPos by 640/client width and 480/client
-    // height, but its menus (with WidescreenFix) place the cursor at 3/4 of the
-    // height that gives: measured on the Redmi Note 8 in the main and pause
-    // menus, a touch at 85% of the screen drew the arrow and hit-tested at 65%,
-    // and the bottom quarter could not be reached. x already matches.
-    screen[1]=point.second*4/3;
+    // Carbon's menu cursor (0x731580) is y * [0x9E8F84] / window height, and its
+    // menus hit-test it in 480 units. WidescreenFix rewrites that float for the
+    // render size (1080 at 2340x1080, against 810 in the file), so the click
+    // landed ~2.25x below the touch there; a fixed 4/3 matched only the Redmi's
+    // size. Report the height that gives touch * 480 with the live factor.
+    // x already matches ([0x9E9B68] is the 480-high menu's width, 1040 at 19.5:9).
+    // Only the game's own reads: NFSCO's overlay (palmont, 0x010B9730) maps the
+    // window pixels itself.
+    if(g_cur_func>=imageBase&&g_cur_func<imageBase+imageSize){
+        float factor=readFloat(0x009E8F84u);auto window=windows.find(activeWindow);
+        if(factor>1.f&&factor<20000.f&&window!=windows.end())
+            screen[1]=int32_t(lroundf(guestPointerY.load()*480.f*float(window->second.height)/factor));
+    }
     if(auto window=windows.find(activeWindow);window!=windows.end()){screen[0]+=window->second.x;screen[1]+=window->second.y;}
     std::memcpy(ptr(arg(0),8),screen,8);ret(1,1);
 }
@@ -480,7 +487,8 @@ void clientRect(){
     // The desktop's client area is the virtual screen (NFSCO centres its window with it).
     if(arg(0)==desktopWindow){int32_t rect[4]={0,0,int32_t(displayModeWidth()),int32_t(displayModeHeight())};std::memcpy(ptr(arg(1),16),rect,16);ret(1,2);return;}
     auto window=windows.find(arg(0));if(window==windows.end()){lastError=1400;ret(0,2);return;}int32_t rect[4]={0,0,window->second.width,window->second.height};
-    if(game::presentParams&&arg(0)==(game::windowHandle?read32(game::windowHandle):0u)){int32_t w=int32_t(read32(game::presentParams)),h=int32_t(read32(game::presentParams+4));if(w>0&&h>0&&w<=8192&&h<=8192){rect[2]=w;rect[3]=h;}}std::memcpy(ptr(arg(1),16),rect,16);ret(1,2);}
+    if(game::presentParams&&arg(0)==(game::windowHandle?read32(game::windowHandle):0u)){int32_t w=int32_t(read32(game::presentParams)),h=int32_t(read32(game::presentParams+4));if(w>0&&h>0&&w<=8192&&h<=8192){rect[2]=w;rect[3]=h;}}
+    std::memcpy(ptr(arg(1),16),rect,16);ret(1,2);}
 void loadIcon(){lastError=1813;ret(0,2);} // PE icon resources are not materialized as Android objects.
 void loadCursor(){
     uint32_t id=arg(1);

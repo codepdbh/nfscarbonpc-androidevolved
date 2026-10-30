@@ -3,6 +3,10 @@ constexpr uint32_t inputMethodBase=0x7d000000;
 constexpr uint32_t diInvalid=0x80070057,diNotAcquired=0x8007000c;
 std::mutex inputMutex;
 std::array<uint8_t,256> inputKeys{};
+// Presses the game's keyboard snapshot has not seen yet. A short tap on a touch
+// button (down and up within one frame, common at 20-30 FPS) was released
+// before the game polled and was lost; the press is held for one game snapshot.
+std::array<uint8_t,256> inputKeysUnseen{};
 std::atomic<bool> inputDrivingMode{false};
 std::array<uint8_t,8> inputMouseButtons{};
 int32_t inputMouseX{},inputMouseY{},inputMouseZ{};
@@ -395,7 +399,8 @@ void inputDispatch(){
             if(kind==3){static unsigned logged=0;if(++logged<=10||logged%600==0)NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","Mouse GetDeviceState refused: acquired=%d size=%u want=%u (%u)",int(object.acquired),arg(1),object.size,logged);}
             ret(!object.acquired?diNotAcquired:diInvalid,3);return;}
         std::lock_guard<std::mutex> lock(inputMutex);std::memset(ptr(arg(2),object.size),0,object.size);
-        if(kind==2&&g_cur_func>=imageBase&&g_cur_func<imageBase+imageSize){
+        bool gameSnapshot=kind==2&&g_cur_func>=imageBase&&g_cur_func<imageBase+imageSize;
+        if(gameSnapshot){
             inputDrivingMode=read32(0x00A99BBC)==6; // Carbon GameFlow state (6 = racing); raw keyboard has no driving action map.
             static int lastEnter=-1;int enter=inputKeys[0x1c];
             if(enter!=lastEnter){lastEnter=enter;NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Keyboard snapshot Enter=%02x bytes=%u objects=%zu caller=%08x",enter,object.size,object.format.size(),g_cur_func);}
@@ -414,11 +419,12 @@ void inputDispatch(){
             else if(!touchButtons.empty()&&steadyMs()-touchSettleMs>=touchHoldMs){inputMouseButtons[0]=touchButtons.front();touchButtons.pop_front();touchSettleMs=steadyMs();}
         }
         for(auto item:object.format){uint32_t index=(item.type>>8)&0xffff,category=item.type&0xff;
-            if(kind==2){if(item.bytes==4)write32(arg(2)+item.offset,inputKeys[index]);else *static_cast<uint8_t*>(ptr(arg(2)+item.offset,1))=inputKeys[index];}
+            if(kind==2){uint8_t state=inputKeys[index]|(gameSnapshot?inputKeysUnseen[index]:0);if(item.bytes==4)write32(arg(2)+item.offset,state);else *static_cast<uint8_t*>(ptr(arg(2)+item.offset,1))=state;}
             else if(category&3){int32_t value=index==0?inputMouseX:index==1?inputMouseY:inputMouseZ;write32(arg(2)+item.offset,static_cast<uint32_t>(value));}
             else *static_cast<uint8_t*>(ptr(arg(2)+item.offset,1))=inputMouseButtons[index];
         }
         if(kind==3)inputMouseX=inputMouseY=inputMouseZ=0;
+        if(gameSnapshot)inputKeysUnseen.fill(0);
         ret(0,3);return;}
     case 10:{uint32_t bytes=arg(1),out=arg(2),count=arg(3),flags=arg(4);
         if(!object.bufferSize){ret(0x80040207,5);return;}if(!object.acquired){ret(diNotAcquired,5);return;}
