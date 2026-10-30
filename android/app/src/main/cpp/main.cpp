@@ -325,6 +325,10 @@ extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity
     typeGuestText(characters);
     __android_log_print(ANDROID_LOG_INFO,"NFSC","Android text delivered to guest: %d characters",int(length));
 }
+extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeBundledWidescreenFix(JNIEnv* env,jclass,jstring path){
+    const char* value=env->GetStringUTFChars(path,nullptr);if(!value)return;
+    setBundledWidescreenFix(value);env->ReleaseStringUTFChars(path,value);
+}
 extern "C" JNIEXPORT void JNICALL Java_com_nfscarbon_androidevolved_GameActivity_nativeLanguage(JNIEnv* env,jclass,jstring language){
     const char* value=env->GetStringUTFChars(language,nullptr);if(!value)return;
     setGuestLanguage(value);env->ReleaseStringUTFChars(language,value);

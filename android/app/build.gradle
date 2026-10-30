@@ -17,3 +17,19 @@ android {
     // adrenotools opens its namespace hook libraries by path from nativeLibraryDir.
     packaging { jniLibs { useLegacyPackaging true } }
 }
+
+// ThirteenAG's NFSCarbon.WidescreenFix.asi (MIT), the 2016 build the guest code
+// was lifted from (235008 bytes), ships in the APK for game folders holding
+// another build. Taken from the local game copy; not kept in git.
+def widescreenFix = file('../../../Need for Speed Carbon/scripts/NFSCarbon.WidescreenFix.asi')
+def bundledAssets = layout.buildDirectory.dir('generated/bundledAssets')
+tasks.register('bundleWidescreenFix', Copy) {
+    doFirst {
+        if (!widescreenFix.exists() || widescreenFix.length() != 235008L)
+            throw new GradleException("NFSCarbon.WidescreenFix.asi (2016 build, 235008 bytes) not found at ${widescreenFix}")
+    }
+    from widescreenFix
+    into bundledAssets
+}
+android.sourceSets.main.assets.srcDir bundledAssets
+preBuild.dependsOn 'bundleWidescreenFix'

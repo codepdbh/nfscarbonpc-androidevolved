@@ -153,6 +153,7 @@ public final class GameActivity extends NativeActivity {
     private static native void nativeGamepadConnected(boolean connected);
     private static native void nativeGamepadDevices(int[] ids);
     private static native void nativeMinimapTop(boolean top);
+    private static native void nativeBundledWidescreenFix(String path);
     private static native void nativeChatPopup(boolean popup);
     private static native void nativeHideChat();
     private static native void nativeBackBuffers(int count);
@@ -301,6 +302,8 @@ public final class GameActivity extends NativeActivity {
         nativeWidescreen(launch.getBooleanExtra("widescreen", GameOptions.get(this, GameOptions.WIDESCREEN).equals("on")));
         String server = launch.getStringExtra("onlineServer");
         nativeOnlineServer(GameOptions.validServer(server) ? server : GameOptions.onlineServer(this));
+        String widescreenFix = extractWidescreenFix();
+        if (widescreenFix != null) nativeBundledWidescreenFix(widescreenFix);
         nativeMinimapTop(launch.getBooleanExtra("minimapTop", GameOptions.get(this, GameOptions.MINIMAP).equals("top")));
         nativeChatPopup(launch.getBooleanExtra("chatPopup", GameOptions.get(this, GameOptions.CHAT).equals("auto")));
         nativeBackBuffers(launch.getIntExtra("backBuffers", Integer.parseInt(GameOptions.get(this, GameOptions.LATENCY))));
@@ -376,6 +379,23 @@ public final class GameActivity extends NativeActivity {
         }
         if (hold) lanBroadcasts.acquire(); else lanBroadcasts.release();
     }
+    // ThirteenAG's NFSCarbon.WidescreenFix.asi (MIT), the 2016 build the guest
+    // code was lifted from, for game folders holding another build or none.
+    private String extractWidescreenFix() {
+        java.io.File out = new java.io.File(getFilesDir(), "NFSCarbon.WidescreenFix.asi");
+        java.io.File temporary = new java.io.File(getFilesDir(), "NFSCarbon.WidescreenFix.asi.tmp");
+        try (java.io.InputStream in = getAssets().open("NFSCarbon.WidescreenFix.asi");
+             java.io.OutputStream copy = new java.io.FileOutputStream(temporary)) {
+            byte[] buffer = new byte[65536];
+            for (int read; (read = in.read(buffer)) > 0; ) copy.write(buffer, 0, read);
+        } catch (java.io.IOException e) {
+            android.util.Log.w("NFSC", "Bundled WidescreenFix not extracted: " + e);
+            return null;
+        }
+        if (!temporary.renameTo(out)) { android.util.Log.w("NFSC", "Bundled WidescreenFix not saved"); return null; }
+        return out.getAbsolutePath();
+    }
+
     // After 3 minutes in the game (time in the foreground), once per launch:
     // the official developer channel.
     private long creditLeftMs=180000,creditSinceMs;

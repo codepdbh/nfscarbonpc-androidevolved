@@ -2,6 +2,26 @@ std::string guestWorkingDirectory="C:\\nfsc";
 void logicalDrives(){ret(4,0);}
 void driveType(){auto path=lower(guestString(arg(0)));ret(path.empty()||path.rfind("c:",0)==0?3:1,1);}
 uint32_t fileError(){switch(errno){case ENOENT:return 2;case EACCES:case EPERM:return 5;case EEXIST:return 80;case ENOSPC:return 112;case EBADF:return 6;default:return 1;}}
+// Movies are named <scene>_<language>_<region>.vp6 and the game opens the one
+// for its language only, skipping the scene (voices included) when it is
+// missing. Copies of the game hold each scene in one or two languages, often
+// mixed (35 Spanish and 12 English on one tested copy), so a missing language
+// falls back to the same scene in another one: English first, then any.
+std::filesystem::path movieInOtherLanguage(const std::filesystem::path& missing){
+    static const std::regex name("(.+)_([a-z]+)_(pal|ntsc)\\.vp6");
+    std::smatch wanted;auto file=lower(missing.filename().string());
+    if(!std::regex_match(file,wanted,name))return missing;
+    std::filesystem::path chosen;std::error_code error;
+    for(auto& entry:std::filesystem::directory_iterator(missing.parent_path(),error)){
+        std::smatch other;auto candidate=lower(entry.path().filename().string());
+        if(!std::regex_match(candidate,other,name)||other[1]!=wanted[1])continue;
+        if(chosen.empty()||other[2]=="english")chosen=entry.path();
+        if(other[2]=="english")break;
+    }
+    if(chosen.empty())return missing;
+    static unsigned logged=0;if(++logged<=32)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Movie %s missing: playing %s",file.c_str(),chosen.filename().string().c_str());
+    return chosen;
+}
 std::filesystem::path gamePath(std::string guest){
     std::replace(guest.begin(),guest.end(),'\\','/');auto normalized=lower(guest);
     if(normalized=="c:/nfsc")guest.clear();
@@ -20,6 +40,7 @@ std::filesystem::path gamePath(std::string guest){
         for(auto& entry:std::filesystem::directory_iterator(result,error))if(lower(entry.path().filename().string())==lower(part.string())){result=entry.path();found=true;break;}
         if(!found)result/=part;
     }
+    {std::error_code error;if(!std::filesystem::exists(result,error)&&lower(result.extension().string())==".vp6")result=movieInOtherLanguage(result);}
     auto root=std::filesystem::weakly_canonical(hostGameRoot);auto resolved=std::filesystem::weakly_canonical(result);
     auto check=resolved.lexically_relative(root);for(const auto& part:check)if(part=="..")throw GuestStop("Guest symlink leaves data root");return resolved;
 }

@@ -38,6 +38,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <filesystem>
+#include <regex>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <cerrno>
@@ -165,6 +166,9 @@ uint32_t resourceRva{},resourceSize{};
 // plain globals, not thread_local, which cost a TLS descriptor call per COM call.
 uint32_t lastImport{};
 std::string hostGameRoot;
+// The app's copy of the WidescreenFix build the guest code was lifted from
+// (assets, extracted by GameActivity), for game folders with another build.
+std::string bundledWidescreenFix;
 std::string guestLanguage="Spanish";
 bool guestWidescreen=true;
 bool guestChatPopup=true;
@@ -1100,6 +1104,7 @@ void setGuestNetworkIdentity(uint64_t identity){
 void setGuestWidescreen(bool enabled){std::lock_guard<MachineMutex> lock(machine);if(!memory)guestWidescreen=enabled;}
 void hideGuestNfscoChat(){nfscoChatHide=true;}
 void setGuestChatPopup(bool popup){std::lock_guard<MachineMutex> lock(machine);if(!memory)guestChatPopup=popup;}
+void setBundledWidescreenFix(const char* path){std::lock_guard<MachineMutex> lock(machine);if(!memory&&path)bundledWidescreenFix=path;}
 void setGuestLanguage(const char* language){
     std::lock_guard<MachineMutex> lock(machine);if(memory)return;
     // The registry "Language" values NFSC.exe matches (table at 0x00A65588).

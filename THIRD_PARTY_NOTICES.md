@@ -4,6 +4,10 @@ Resolution/HUD adaptation in src/runtime/widescreen.c follows the Carbon impleme
 
 Source: https://github.com/ThirteenAG/WidescreenFixesPack/tree/master/source/NFSMostWanted.WidescreenFix
 
+The APK also ships ThirteenAG's NFSCarbon.WidescreenFix.asi (2016 release, 235008 bytes),
+the build its guest code was lifted from, used when the game folder holds another build.
+Source: https://github.com/ThirteenAG/WidescreenFixesPack (NFSCarbon.WidescreenFix), under the license below.
+
 MIT License
 
 Copyright (c) 2018 ThirteenAG

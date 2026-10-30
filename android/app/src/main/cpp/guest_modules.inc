@@ -130,16 +130,32 @@ uint32_t loadGuestModule(const std::string& name){
     for(auto& candidate:guestModuleSpecs)if(name==candidate.name)spec=&candidate;
     if(!spec)return 0;
     if(!spec->lifted){NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","%s: this build has no lifted code for it",name.c_str());return 0;}
-    std::ifstream stream(gamePath(std::string("C:\\nfsc\\")+spec->folder+name),std::ios::binary);
-    if(!stream){NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","%s is missing from the game folder",name.c_str());return 0;}
-    std::vector<unsigned char> file((std::istreambuf_iterator<char>(stream)),{});
+    auto read=[](const std::filesystem::path& path){std::ifstream stream(path,std::ios::binary);
+        return stream?std::vector<unsigned char>((std::istreambuf_iterator<char>(stream)),{}):std::vector<unsigned char>{};};
+    // Only the build the guest code was lifted from can run: its base, size and entry point.
+    auto matches=[&](const std::vector<unsigned char>& candidate){
+        if(candidate.size()<0x400)return false;auto header=fileStruct<pe_dos_header>(candidate,0);
+        if(header.e_magic!=0x5a4d||header.e_lfanew<0||uint64_t(header.e_lfanew)+sizeof(pe_nt_headers32)>candidate.size())return false;
+        auto optional=fileStruct<pe_nt_headers32>(candidate,header.e_lfanew).OptionalHeader;
+        return optional.ImageBase==spec->preferredBase&&optional.SizeOfImage==spec->imageSize&&recomp_lookup(spec->base+optional.AddressOfEntryPoint);};
+    std::vector<unsigned char> file=read(gamePath(std::string("C:\\nfsc\\")+spec->folder+name));
+    // Copies of the game carry other WidescreenFix builds (players reported
+    // 6.58 MB and 106 KB ones); the app ships the 2016 build it was lifted from.
+    if(!matches(file)&&lower(name)=="nfscarbon.widescreenfix.asi"&&!bundledWidescreenFix.empty()){
+        auto bundled=read(bundledWidescreenFix);
+        if(matches(bundled)){
+            NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","%s: %s, using the app's copy",name.c_str(),file.empty()?"missing from the game folder":"another build in the game folder");
+            file=std::move(bundled);
+        }
+    }
+    if(file.empty()){NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","%s is missing from the game folder",name.c_str());return 0;}
     auto dos=fileStruct<pe_dos_header>(file,0);
     if(dos.e_magic!=0x5a4d||dos.e_lfanew<0)throw GuestStop(name+": invalid DOS header");
     auto nt=fileStruct<pe_nt_headers32>(file,dos.e_lfanew);auto opt=nt.OptionalHeader;
     if(nt.Signature!=0x4550||nt.FileHeader.Machine!=0x14c||opt.Magic!=0x10b||!(nt.FileHeader.Characteristics&0x2000))
         throw GuestStop(name+": expected an x86 PE32 DLL");
     uint32_t base=spec->base,size=opt.SizeOfImage,entry=base+opt.AddressOfEntryPoint;
-    if(opt.ImageBase!=spec->preferredBase||size!=spec->imageSize||!recomp_lookup(entry))
+    if(!matches(file))
         throw GuestStop(name+": file layout does not match the lifted code (base "+hex(opt.ImageBase)+", size "+hex(size)+")");
     memory->commit(base,size);
     std::memset(ptr(base,size),0,size);

@@ -27,6 +27,7 @@ void setGuestPointer(float x,float y,int phase);
 /** Posts WM_CHAR messages (the game's text fields read those); 8 is backspace. */
 void typeGuestText(const std::vector<uint32_t>& characters);
 void setGuestLanguage(const char* language);
+void setBundledWidescreenFix(const char* path);
 void setGuestResolution(unsigned width,unsigned height);
 void setGuestGraphicsQuality(unsigned level);
 void setGuestFrameLimit(unsigned framesPerSecond);
