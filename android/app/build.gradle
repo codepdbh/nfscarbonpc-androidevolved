@@ -7,8 +7,8 @@ android {
         applicationId 'com.nfscarbon.androidevolved'
         minSdk 29
         targetSdk 35
-        versionCode 10
-        versionName '0.1.8'
+        versionCode 11
+        versionName '0.1.9'
         // -PnfsAbi=armeabi-v7a builds the separate 32-bit APK.
         ndk { abiFilters(project.findProperty('nfsAbi') ?: 'arm64-v8a') }
         externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static' } }
@@ -20,8 +20,8 @@ android {
 
 // ThirteenAG's NFSCarbon.WidescreenFix.asi (MIT), the 2016 build the guest code
 // was lifted from (235008 bytes), ships in the APK for game folders holding
-// another build. Taken from the local game copy; not kept in git.
-def widescreenFix = file('../../../Need for Speed Carbon/scripts/NFSCarbon.WidescreenFix.asi')
+// another build. Kept in widescreenfix/ (a copy of the player's file), not in git.
+def widescreenFix = file('../../widescreenfix/NFSCarbon.WidescreenFix.asi')
 def bundledAssets = layout.buildDirectory.dir('generated/bundledAssets')
 tasks.register('bundleWidescreenFix', Copy) {
     doFirst {

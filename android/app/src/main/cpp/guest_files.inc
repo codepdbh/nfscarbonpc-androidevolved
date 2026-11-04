@@ -22,6 +22,27 @@ std::filesystem::path movieInOtherLanguage(const std::filesystem::path& missing)
     static unsigned logged=0;if(++logged<=32)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Movie %s missing: playing %s",file.c_str(),chosen.filename().string().c_str());
     return chosen;
 }
+// Speech banks too (SOUND/SPEECH and SOUND/STREAMS: cop and crew voices, the in-engine
+// cutscenes): the game asks for <bank>_<language>.<ext>, and copies usually hold only
+// <bank>.<ext>. Without the _ES banks it ran with no speech at all. Falls back to the
+// plain bank, then to any other language; all the files of a bank resolve alike.
+std::filesystem::path speechInOtherLanguage(const std::filesystem::path& missing){
+    auto folder=lower(missing.parent_path().filename().string());
+    if(folder!="speech"&&folder!="streams")return missing;
+    static const std::regex name("(.+)_[a-z]{2}(\\.[a-z0-9]+)");
+    std::smatch wanted;auto file=lower(missing.filename().string());
+    if(!std::regex_match(file,wanted,name))return missing;
+    const std::string plain=wanted[1].str()+wanted[2].str();
+    std::filesystem::path chosen;std::error_code error;
+    for(auto& entry:std::filesystem::directory_iterator(missing.parent_path(),error)){
+        std::smatch other;auto candidate=lower(entry.path().filename().string());
+        if(candidate==plain){chosen=entry.path();break;}
+        if(chosen.empty()&&std::regex_match(candidate,other,name)&&other[1]==wanted[1]&&other[2]==wanted[2])chosen=entry.path();
+    }
+    if(chosen.empty())return missing;
+    static unsigned logged=0;if(++logged<=32)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Speech %s missing: using %s",file.c_str(),chosen.filename().string().c_str());
+    return chosen;
+}
 std::filesystem::path gamePath(std::string guest){
     std::replace(guest.begin(),guest.end(),'\\','/');auto normalized=lower(guest);
     if(normalized=="c:/nfsc")guest.clear();
@@ -40,7 +61,8 @@ std::filesystem::path gamePath(std::string guest){
         for(auto& entry:std::filesystem::directory_iterator(result,error))if(lower(entry.path().filename().string())==lower(part.string())){result=entry.path();found=true;break;}
         if(!found)result/=part;
     }
-    {std::error_code error;if(!std::filesystem::exists(result,error)&&lower(result.extension().string())==".vp6")result=movieInOtherLanguage(result);}
+    {std::error_code error;if(!std::filesystem::exists(result,error)){
+        result=lower(result.extension().string())==".vp6"?movieInOtherLanguage(result):speechInOtherLanguage(result);}}
     auto root=std::filesystem::weakly_canonical(hostGameRoot);auto resolved=std::filesystem::weakly_canonical(result);
     auto check=resolved.lexically_relative(root);for(const auto& part:check)if(part=="..")throw GuestStop("Guest symlink leaves data root");return resolved;
 }
@@ -87,8 +109,19 @@ void createFile(){
 }
 void readFile(){
     auto file=fileHandles.find(arg(0));if(file==fileHandles.end()){lastError=6;ret(0,5);return;}if(arg(4))throw GuestStop("Overlapped ReadFile pending");
-    if(arg(3))write32(arg(3),0);ssize_t count;do{count=::read(file->second,ptr(arg(1),arg(2)),arg(2));}while(count<0&&errno==EINTR);
-    if(count<0){lastError=fileError();ret(0,5);return;}if(arg(3))write32(arg(3),count);ret(1,5);
+    // ReadFile on a Windows disk file returns everything up to the end of the file;
+    // read() on Android's shared storage (FUSE) may return less. The game took a short
+    // read for the whole section, and the rest of the buffer sent its chunk walk
+    // (sub_006AD870, STREAML5RA.BUN while driving) off the end of guest memory.
+    if(arg(3))write32(arg(3),0);
+    auto* target=static_cast<uint8_t*>(ptr(arg(1),arg(2)));uint32_t total=0;
+    while(total<arg(2)){
+        ssize_t count=::read(file->second,target+total,arg(2)-total);
+        if(count<0){if(errno==EINTR)continue;lastError=fileError();ret(0,5);return;}
+        if(!count)break;
+        total+=uint32_t(count);
+    }
+    if(arg(3))write32(arg(3),total);ret(1,5);
 }
 void writeFile(){
     if(arg(4))throw GuestStop("Overlapped WriteFile pending");
@@ -98,8 +131,13 @@ void writeFile(){
         guestConsole(std::string(static_cast<const char*>(ptr(arg(1),arg(2))),arg(2)));write32(arg(3),arg(2));ret(1,5);return;}
     auto file=fileHandles.find(arg(0));if(file==fileHandles.end()){lastError=6;ret(0,5);return;}
     if(!memory->readable(arg(1),arg(2))){lastError=1784;ret(0,5);return;}
-    ssize_t count;do{count=::write(file->second,ptr(arg(1),arg(2)),arg(2));}while(count<0&&errno==EINTR);
-    if(count<0){lastError=fileError();ret(0,5);return;}write32(arg(3),uint32_t(count));ret(1,5);
+    auto* source=static_cast<const uint8_t*>(ptr(arg(1),arg(2)));uint32_t total=0;
+    while(total<arg(2)){
+        ssize_t count=::write(file->second,source+total,arg(2)-total);
+        if(count<0){if(errno==EINTR)continue;lastError=fileError();ret(0,5);return;}
+        total+=uint32_t(count);
+    }
+    write32(arg(3),total);ret(1,5);
 }
 void flushFileBuffers(){auto file=fileHandles.find(arg(0));if(file==fileHandles.end()){lastError=6;ret(0,1);return;}
     int result;do{result=::fsync(file->second);}while(result&&errno==EINTR);if(result){lastError=fileError();ret(0,1);return;}ret(1,1);

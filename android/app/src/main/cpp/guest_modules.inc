@@ -374,7 +374,8 @@ void writeNfscoChat(){
     }
     if(!changed)return;
     std::ofstream out(path,std::ios::binary|std::ios::trunc);out<<text;
-    if(!out)throw GuestStop("Could not save NFSCO chat display settings");
+    // A preference: the game runs with the file as it was (a read-only copy of the folder, issue #122).
+    if(!out){NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","Could not save NFSCO chat display settings: %s",path.string().c_str());return;}
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO chat: at least 20 seconds visible, slower fade, shown on messages: %s",guestChatPopup?"yes":"no");
 }
 // NFSCO reads these before installing its game settings hooks. Keep unrelated
@@ -415,8 +416,11 @@ void writeNfscoGraphics(){
     boolean("is_vertical_synchronization_enabled",false);
     boolean("are_movies_enabled",true);  // FMVs only play between menus and races
     auto temporary=path;temporary+=".tmp";
-    {std::ofstream out(temporary,std::ios::binary|std::ios::trunc);out<<text;if(!out)throw GuestStop("Could not save NFSCO graphics settings");}
-    std::filesystem::rename(temporary,path);
+    // A preference too: if it cannot be written the game keeps its current settings file.
+    {std::ofstream out(temporary,std::ios::binary|std::ios::trunc);out<<text;
+     if(!out){NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","Could not save NFSCO graphics settings: %s",temporary.string().c_str());return;}}
+    std::error_code renamed;std::filesystem::rename(temporary,path,renamed);
+    if(renamed){NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSC","Could not save NFSCO graphics settings: %s",renamed.message().c_str());return;}
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","NFSCO graphics profile %u (4 ultra low, 1 low, 2 medium, 3 high)",graphicsQuality);
 }
 void startNfsco(){

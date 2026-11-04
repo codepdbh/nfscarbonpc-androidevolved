@@ -113,7 +113,10 @@ private:
             // RB/LB shift up/down, R3 camera (C), L3 look back (L), Start pause.
             want[0xc8]=up||buttons_[R2]||past(rightTrigger_,0xc8);
             want[0xd0]=down||buttons_[L2]||past(leftTrigger_,0xd0);
-            want[0x39]=buttons_[A];want[0x36]=buttons_[B];want[0x2d]=buttons_[X];want[0x9d]=buttons_[Y];
+            // The driving layout stays on in the pause menu and results screens (GameFlow
+            // still says racing): A is Enter as well so they can be accepted from the
+            // pad (issues #101, #114). While driving Enter only starts a nearby event.
+            want[0x39]=buttons_[A];want[0x1c]=buttons_[A];want[0x36]=buttons_[B];want[0x2d]=buttons_[X];want[0x9d]=buttons_[Y];
             want[0x2e]=buttons_[ThumbR];want[0x26]=buttons_[ThumbL];
             want[0x2a]=buttons_[R1];want[0x1d]=buttons_[L1];
             want[0x01]=buttons_[Start]||buttons_[Select];

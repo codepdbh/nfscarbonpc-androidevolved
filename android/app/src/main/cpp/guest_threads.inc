@@ -121,6 +121,7 @@ void exitThread(){
 }
 void* guestThreadEntry(void* context){
     insideGuestThread=true;
+    stayOnPerformanceCores();
     auto& thread=*static_cast<GuestThread*>(context);
     currentGuestThread=&thread;
     std::unique_lock<MachineMutex> lease(machine);machineLease=&lease;guestThreadId=thread.id;
