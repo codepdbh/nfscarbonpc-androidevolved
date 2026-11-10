@@ -86,6 +86,11 @@ final class Diagnostics {
             info.append("language=").append(GameOptions.language(context)).append('\n');
             add(zip, "informe.txt", info.toString().getBytes(StandardCharsets.UTF_8));
             add(zip, "logcat.txt", logcat(0));
+            // The game's own log (game_log.h): kept after Android drops its logcat lines.
+            for (String name : new String[] {"game.log", "game-previous.log"}) {
+                File log = new File(context.getFilesDir(), name);
+                if (log.isFile()) try (java.io.FileInputStream input = new java.io.FileInputStream(log)) { add(zip, name, readLimited(input)); }
+            }
             ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
             if (Build.VERSION.SDK_INT >= 30 && manager != null) addExitInfo(zip, manager, context);
         } catch (Exception error) {
@@ -95,10 +100,41 @@ final class Diagnostics {
         return report;
     }
 
-    /** The last game lines (runtime, DXVK, crashes) of this app's log, for the issue body. */
-    static String logTail(int lines) {
-        try { return new String(logcat(lines, "NFSC:I", "DXVK:W", "AndroidRuntime:E", "DEBUG:F", "libc:F", "*:S"), StandardCharsets.UTF_8); }
-        catch (IOException error) { return error.toString(); }
+    /** The last game lines (runtime, DXVK, crashes) for the issue body. They come from the
+     *  game's own files/game.log (game_log.h): by the time the player reports, Android has
+     *  usually dropped them from logcat, and most issue bodies arrived with an empty tail.
+     *  Crash lines (debuggerd, AndroidRuntime) only exist in logcat. */
+    static String logTail(Context context) {
+        StringBuilder text = new StringBuilder();
+        java.io.File log = new java.io.File(context.getFilesDir(), "game.log");
+        boolean gameLog = log.isFile() && log.length() > 0;
+        if (gameLog) {
+            try (java.io.RandomAccessFile input = new java.io.RandomAccessFile(log, "r")) {
+                long start = Math.max(0, input.length() - 512 * 1024);
+                byte[] data = new byte[(int) (input.length() - start)];
+                input.seek(start);
+                input.readFully(data);
+                String[] lines = new String(data, StandardCharsets.UTF_8).split("\n");
+                for (int i = start > 0 ? 1 : 0; i < lines.length; i++) {
+                    // "11-06 10:12:25.274 I TAG: text" in the threadtime layout compact() reads.
+                    String[] parts = lines[i].split(" ", 4);
+                    int colon = parts.length < 4 ? -1 : parts[3].indexOf(": ");
+                    if (colon < 0) continue;
+                    text.append(parts[0]).append(' ').append(parts[1]).append(" 0 0 ").append(parts[2]).append(' ')
+                            .append(parts[3], 0, colon).append(" : ").append(parts[3].substring(colon + 2)).append('\n');
+                }
+            } catch (IOException error) {
+                gameLog = false;
+                text.setLength(0);
+            }
+        }
+        try {
+            text.append(new String(gameLog ? logcat(0, "AndroidRuntime:E", "DEBUG:F", "libc:F", "*:S")
+                    : logcat(0, "NFSC:I", "DXVK:W", "AndroidRuntime:E", "DEBUG:F", "libc:F", "*:S"), StandardCharsets.UTF_8));
+        } catch (IOException error) {
+            text.append(error);
+        }
+        return text.toString();
     }
 
     // Lines that explain a stop, a stall or a missing piece of the Windows layer.
@@ -108,7 +144,7 @@ final class Diagnostics {
             + "|#[01][0-9] pc [0-9a-f]+ .*libnfsc");
     // Per-frame or per-file chatter that crowds out the useful part of the tail.
     private static final java.util.regex.Pattern NOISE = java.util.regex.Pattern.compile(
-            "Guest file |touch DIK|Keyboard buffered|D3D9 COM|Guest timer|Guest import|Guest LoadLibrary d3d9|VirtualProtect|presentation");
+            "Guest file |touch DIK|Keyboard buffered|D3D9 COM|Guest timer|Guest import|Guest LoadLibrary d3d9|VirtualProtect|presentation|Audio producer|Audio mix|Audio health|Keyboard snapshot");
     // GitHub refuses the new-issue link past roughly 8 KB once it is URL-encoded.
     private static final int URL_BUDGET = 7500;
 
@@ -124,7 +160,7 @@ final class Diagnostics {
     static Uri issueUri(Context context, String crash, String zipLocation) {
         List<String> key = new java.util.ArrayList<>(), tail = new java.util.ArrayList<>();
         String lastFrame = null;
-        for (String line : logTail(0).split("\n")) {
+        for (String line : logTail(context).split("\n")) {
             if (line.contains("presentation")) lastFrame = compact(line);
             if (KEY_LINE.matcher(line).find()) key.add(compact(line));
             else if (line.contains(" NFSC ") && !NOISE.matcher(line).find()) tail.add(compact(line));

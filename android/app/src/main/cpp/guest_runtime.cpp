@@ -1,3 +1,4 @@
+#include "game_log.h"
 #include <random>
 #include <unwind.h>
 #include <dlfcn.h>
