@@ -251,7 +251,7 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
         auto nativeReferences=object->Release();uint32_t references=--found->second.references;
         // Only the last guest reference: surfaces are fetched and released
         // every frame, and a log line per call showed up as frame-time spikes.
-        if(kind==5&&!references)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Surface Release object=%08x nativeRefs=%u",args[0],uint32_t(nativeReferences));
+        if(kind==5&&!references){static unsigned released=0;if(++released<=16||!(released&255))NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSC","Surface Release object=%08x nativeRefs=%u (%u so far)",args[0],uint32_t(nativeReferences),released);}
         if(!references){
             if(found->second.children)return uint32_t(nativeReferences);
             auto parent=found->second.parent;retireGuestObject(args[0]);
